@@ -1,0 +1,128 @@
+import { mkdir, readdir, stat, unlink, utimes } from "node:fs/promises";
+import { join } from "node:path";
+
+export type Bytes = Uint8Array<ArrayBuffer>;
+
+interface Entry {
+  path: string;
+  size: number;
+  mtime: number;
+}
+
+/**
+ * Tiny content-addressed disk cache. Entries live in `<dir>/<namespace>/<xx>/<hash>`;
+ * the modification time doubles as "last used" so pruning evicts the coldest entries first.
+ */
+export class DiskCache {
+  private inflight = new Map<string, Promise<Bytes>>();
+  private writesSincePrune = 0;
+
+  constructor(
+    private readonly dir: string,
+    private readonly maxBytes: number,
+  ) {}
+
+  private path(namespace: string, key: string): string {
+    const hash = new Bun.CryptoHasher("sha1").update(key).digest("hex");
+    return join(this.dir, namespace, hash.slice(0, 2), hash.slice(2));
+  }
+
+  async get(namespace: string, key: string, maxAgeMs = Number.POSITIVE_INFINITY): Promise<Bytes | null> {
+    const path = this.path(namespace, key);
+    const file = Bun.file(path);
+    if (!(await file.exists())) return null;
+    if (Date.now() - file.lastModified > maxAgeMs) return null;
+    try {
+      return new Uint8Array(await file.arrayBuffer());
+    } catch {
+      return null;
+    }
+  }
+
+  async set(namespace: string, key: string, data: Bytes): Promise<void> {
+    try {
+      await Bun.write(this.path(namespace, key), data);
+      if (++this.writesSincePrune >= 200) {
+        this.writesSincePrune = 0;
+        void this.prune();
+      }
+    } catch (error) {
+      console.warn("[cache] write failed:", (error as Error).message);
+    }
+  }
+
+  /** Marks an entry as recently used so it survives pruning longer. */
+  touch(namespace: string, key: string): void {
+    const now = new Date();
+    utimes(this.path(namespace, key), now, now).catch(() => {});
+  }
+
+  /**
+   * Returns the cached value or computes it once, even when many callers ask at the same time.
+   * `fresh` tells whether the value came from the producer rather than from disk.
+   */
+  async wrap(
+    namespace: string,
+    key: string,
+    maxAgeMs: number,
+    produce: () => Promise<Bytes>,
+  ): Promise<{ data: Bytes; fresh: boolean }> {
+    const cached = await this.get(namespace, key, maxAgeMs);
+    if (cached) return { data: cached, fresh: false };
+    const id = `${namespace}:${key}`;
+    let pending = this.inflight.get(id);
+    if (!pending) {
+      pending = produce()
+        .then(async (data) => {
+          await this.set(namespace, key, data);
+          return data;
+        })
+        .finally(() => this.inflight.delete(id));
+      this.inflight.set(id, pending);
+    }
+    return { data: await pending, fresh: true };
+  }
+
+  private async walk(dir: string, out: Entry[]): Promise<void> {
+    let names: string[];
+    try {
+      names = await readdir(dir);
+    } catch {
+      return;
+    }
+    for (const name of names) {
+      const path = join(dir, name);
+      try {
+        const info = await stat(path);
+        if (info.isDirectory()) await this.walk(path, out);
+        else out.push({ path, size: info.size, mtime: info.mtimeMs });
+      } catch {
+        // The entry disappeared while walking: nothing to account for.
+      }
+    }
+  }
+
+  /** Deletes the least recently used entries until the cache fits its budget again. */
+  async prune(): Promise<{ files: number; bytes: number; removed: number }> {
+    await mkdir(this.dir, { recursive: true });
+    const entries: Entry[] = [];
+    await this.walk(this.dir, entries);
+    let bytes = entries.reduce((sum, entry) => sum + entry.size, 0);
+    let removed = 0;
+    if (bytes > this.maxBytes) {
+      entries.sort((a, b) => a.mtime - b.mtime);
+      const target = this.maxBytes * 0.85;
+      for (const entry of entries) {
+        if (bytes <= target) break;
+        try {
+          await unlink(entry.path);
+          bytes -= entry.size;
+          removed++;
+        } catch {
+          // Already gone.
+        }
+      }
+    }
+    return { files: entries.length - removed, bytes, removed };
+  }
+}
