@@ -217,7 +217,7 @@ export class App {
     if (this.wide.matches) {
       this.viewer.setInsets({ left: 0, right: open ? 364 : 0, top: 40, bottom: 0 }, animate);
     } else {
-      this.viewer.setInsets({ left: 0, right: 0, top: 60, bottom: open ? innerHeight * 0.48 : 110 }, animate);
+      this.viewer.setInsets({ left: 0, right: 0, top: 60, bottom: open ? innerHeight * 0.5 : 110 }, animate);
     }
   }
 

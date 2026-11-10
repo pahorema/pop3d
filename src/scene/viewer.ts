@@ -305,7 +305,9 @@ export class Viewer {
     const vertical = THREE.MathUtils.degToRad(this.camera.fov) / 2;
     const tanV = Math.tan(vertical) * (freeHeight / this.height);
     const tanH = Math.tan(vertical) * this.camera.aspect * (freeWidth / this.width);
-    return (radius * 1.12) / Math.sin(Math.atan(Math.min(tanV, tanH)));
+    // Tall, narrow windows show the model wider than its radius suggests: leave more air.
+    const margin = freeWidth < freeHeight ? 1.26 : 1.12;
+    return (radius * margin) / Math.sin(Math.atan(Math.min(tanV, tanH)));
   }
 
   private homeTarget(): THREE.Vector3 {

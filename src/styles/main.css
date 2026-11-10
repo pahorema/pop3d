@@ -1580,7 +1580,7 @@ button {
     right: var(--gap);
     bottom: var(--gap);
     width: auto;
-    max-height: min(62%, 520px);
+    max-height: min(56%, 500px);
     flex-direction: column-reverse;
   }
 
