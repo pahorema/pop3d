@@ -40,6 +40,44 @@ diorama. Poi lo esplori, lo personalizzi e lo esporti, anche per la stampa 3D.
 Scorciatoie: `/` cerca · `1`–`5` pannelli · `R` vista iniziale · `T` dall'alto · `N` nord in alto ·
 `Spazio` rotazione · `H` nasconde l'interfaccia · `Esc` chiude.
 
+## API
+
+Lo stesso motore risponde anche via HTTP: una richiesta, un file. Niente chiavi, solo `GET`.
+
+```bash
+curl -o trieste.glb "https://pop.gonebananas.it/api/model?lat=45.6503&lon=13.7678&size=800"
+```
+
+```bash
+curl -o colosseo.stl "https://pop.gonebananas.it/api/model?q=Colosseo,%20Roma&size=600&format=stl&print_size=120"
+```
+
+`/api/model` accetta tutte le opzioni dell'app:
+
+| Parametro | Valori | A cosa serve |
+|---|---|---|
+| `q` oppure `lat` + `lon` | testo libero, coordinate | Dove: un nome da cercare o il centro esatto |
+| `shape` | `circle` `square` `rounded` `hexagon` | Forma del modello |
+| `size`, oppure `width` + `depth` | 120 – 5000 m | Estensione |
+| `detail` | `0` `1` `2` | Quanto contenuto includere |
+| `relief` | 0 – 3 | Esagerazione del rilievo (0 = piatto) |
+| `roofs` | `true` `false` | Tetti a falde e cupole |
+| `layers`, `hide` | elenco di livelli | Cosa tenere, cosa togliere |
+| `theme` | gli otto temi | Colori |
+| `colors` | `walls:f2e9dc,roofs:c8553d` | Ritocchi ai singoli colori |
+| `buildings` | `theme` `height` `kind` | Come colorare gli edifici |
+| `print_size`, `print_base`, `print_zscale`, `print_feature` | millimetri, fattore | Scala, base ed esagerazione per la stampa |
+| `format` | `glb` `obj` `stl` `3mf` `json` | Formato; `json` descrive il modello senza scaricarlo |
+| `lang`, `download` | `it` `en`, `true` | Lingua dei nomi, invio come allegato |
+
+La documentazione completa, con esempi cliccabili, è servita dal sito stesso su
+[`/api`](https://pop.gonebananas.it/api), e la descrizione OpenAPI su `/api/openapi.json`.
+Nel pannello **Esporta** dell'app c'è il link API che riproduce il diorama che stai guardando.
+
+I modelli vengono costruiti in un thread separato e messi in cache: la stessa richiesta, la
+seconda volta, risponde subito. Gli altri endpoint (`/api/geocode`, `/api/suggest`,
+`/api/reverse`, `/api/osm`, `/api/dem`) sono quelli che usa l'app.
+
 ## Come è fatto
 
 ```
@@ -52,8 +90,9 @@ browser                                   server (Bun)
                                           └───────────────────────────────┘
 ```
 
-- **`server/`** – un solo processo `Bun.serve`: serve l'app e fa da tramite verso i servizi
-  aperti. Le richieste a Overpass partono scaglionate su più mirror (vince il primo che risponde),
+- **`server/`** – un solo processo `Bun.serve`: serve l'app, espone l'API e fa da tramite verso
+  i servizi aperti. I modelli richiesti via API nascono in un worker thread, con lo stesso codice
+  che gira nel browser. Le richieste a Overpass partono scaglionate su più mirror (vince il primo che risponde),
   gli estratti vengono ridotti a un formato compatto e messi in cache su disco; un estratto
   scaduto viene servito subito mentre si aggiorna in secondo piano.
 - **`src/worker/`** – tutta la geometria nasce in un web worker. I poligoni passano da
@@ -123,6 +162,7 @@ inoltrare tutto. In `deploy/pop3d.service` c'è un'unità systemd pronta.
 | `POP3D_NOMINATIM`, `POP3D_PHOTON` | istanze pubbliche | Servizi di geocoding |
 | `POP3D_DEM_TILES` | tile Terrarium su AWS | Modello `{z}/{x}/{y}` delle tile altimetriche |
 | `POP3D_MAX_SPAN` | `6500` | Lato massimo, in metri, di un'area richiesta |
+| `POP3D_CORS` | `*` | Chi può chiamare l'API dal browser (`Access-Control-Allow-Origin`); vuoto per limitarla al sito stesso |
 
 ## Dati e licenze
 
