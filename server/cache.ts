@@ -57,18 +57,17 @@ export class DiskCache {
     utimes(this.path(namespace, key), now, now).catch(() => {});
   }
 
-  /**
-   * Returns the cached value or computes it once, even when many callers ask at the same time.
-   * `fresh` tells whether the value came from the producer rather than from disk.
-   */
-  async wrap(
-    namespace: string,
-    key: string,
-    maxAgeMs: number,
-    produce: () => Promise<Bytes>,
-  ): Promise<{ data: Bytes; fresh: boolean }> {
-    const cached = await this.get(namespace, key, maxAgeMs);
-    if (cached) return { data: cached, fresh: false };
+  private async read(namespace: string, key: string): Promise<{ data: Bytes; age: number } | null> {
+    const file = Bun.file(this.path(namespace, key));
+    if (!(await file.exists())) return null;
+    try {
+      return { data: new Uint8Array(await file.arrayBuffer()), age: Date.now() - file.lastModified };
+    } catch {
+      return null;
+    }
+  }
+
+  private produceOnce(namespace: string, key: string, produce: () => Promise<Bytes>): Promise<Bytes> {
     const id = `${namespace}:${key}`;
     let pending = this.inflight.get(id);
     if (!pending) {
@@ -80,7 +79,32 @@ export class DiskCache {
         .finally(() => this.inflight.delete(id));
       this.inflight.set(id, pending);
     }
-    return { data: await pending, fresh: true };
+    return pending;
+  }
+
+  /**
+   * Returns the cached value or computes it once, even when many callers ask at the same time.
+   * `fresh` tells whether the value came from the producer rather than from disk.
+   *
+   * With `serveStale`, an expired entry is still returned at once while a new one is produced
+   * in the background: callers never wait for slow upstreams twice.
+   */
+  async wrap(
+    namespace: string,
+    key: string,
+    maxAgeMs: number,
+    produce: () => Promise<Bytes>,
+    options: { serveStale?: boolean } = {},
+  ): Promise<{ data: Bytes; fresh: boolean }> {
+    const hit = await this.read(namespace, key);
+    if (hit && hit.age <= maxAgeMs) return { data: hit.data, fresh: false };
+    if (hit && options.serveStale) {
+      this.produceOnce(namespace, key, produce).catch((error: Error) => {
+        console.warn(`[cache] background refresh of ${namespace} failed: ${error.message}`);
+      });
+      return { data: hit.data, fresh: false };
+    }
+    return { data: await this.produceOnce(namespace, key, produce), fresh: true };
   }
 
   private async walk(dir: string, out: Entry[]): Promise<void> {

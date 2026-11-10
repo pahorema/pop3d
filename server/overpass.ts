@@ -253,13 +253,12 @@ async function withSlot<T>(task: () => Promise<T>): Promise<T> {
 /** Returns the gzip-compressed compact OSM payload for the area, from cache when possible. */
 export async function osmExtract(cache: DiskCache, bbox: BBox): Promise<{ data: Bytes; fresh: boolean }> {
   const key = `v2|${[bbox.s, bbox.w, bbox.n, bbox.e].map((v) => v.toFixed(5)).join(",")}`;
-  const result = await cache.wrap("osm", key, 21 * DAY, () =>
+  const produce = () =>
     withSlot(async () => {
       const raw = await hedged(buildQuery(bbox));
       const payload = compactOverpass(raw, bbox);
       return Bun.gzipSync(new TextEncoder().encode(JSON.stringify(payload)));
-    }),
-  );
-  if (!result.fresh) cache.touch("osm", key);
-  return result;
+    });
+  // The map changes slowly: an old extract shown at once beats a fresh one after a long wait.
+  return cache.wrap("osm", key, 14 * DAY, produce, { serveStale: true });
 }
