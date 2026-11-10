@@ -37,6 +37,9 @@ export function writeStl(parts: PrintPart[], title: string): Blob {
   return new Blob([buffer], { type: "model/stl" });
 }
 
+/** Millimetres with three decimals; adding zero keeps "-0.000" from splitting welded corners. */
+const micron = (value: number) => (Math.round(value * 1000) / 1000 + 0).toFixed(3);
+
 const xml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
 /**
@@ -73,9 +76,9 @@ export function write3mf(
     const corner = [0, 0, 0];
     for (let i = 0; i < t.length; i += 9) {
       for (let k = 0; k < 3; k++) {
-        const x = t[i + k * 3]!.toFixed(3);
-        const y = t[i + k * 3 + 1]!.toFixed(3);
-        const z = t[i + k * 3 + 2]!.toFixed(3);
+        const x = micron(t[i + k * 3]!);
+        const y = micron(t[i + k * 3 + 1]!);
+        const z = micron(t[i + k * 3 + 2]!);
         const key = `${x} ${y} ${z}`;
         let id = lookup.get(key);
         if (id === undefined) {

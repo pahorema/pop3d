@@ -261,7 +261,11 @@ export class App {
         this.viewer.applySettings(state.view);
         this.viewBar.setRotating(state.view.autoRotate);
       }
-      if (changed.has("panel")) this.updateInsets(true);
+      if (changed.has("panel")) {
+        this.updateInsets(true);
+        // Leaving the layer list must not leave a layer highlighted.
+        this.emphasize(null);
+      }
       if (changed.has("lang")) {
         setLanguage(state.lang);
         this.mountInterface();

@@ -106,6 +106,7 @@ export function buildPrint(state: BuildState, params: PrintParams): { parts: Pri
       const bTop = high(bx, by);
       const aLow = low(ax, ay);
       const bLow = low(bx, by);
+      if (aTop - aLow < 1e-6 && bTop - bLow < 1e-6) continue;
       const x0 = ax * scale;
       const y0 = ay * scale;
       const x1 = bx * scale;
@@ -138,15 +139,19 @@ export function buildPrint(state: BuildState, params: PrintParams): { parts: Pri
   const landTess = tessellate(toRings(land), terrain);
   surface(block, landTess, top, true);
   const bed: Height = (x, y) => top(x, y) - recess;
-  walls(block, landTess.edges, top, () => floor, onOutline);
+  const flat: Height = () => floor;
+  // Rim walls are split at the level of the water bed, so that they meet the banks and the
+  // rim under the water edge to edge wherever a shore reaches the outline.
+  walls(block, landTess.edges, top, bed);
+  walls(block, landTess.edges, bed, flat, onOutline);
+  // The underside reuses the very same triangles as the top, so every seam lines up exactly.
+  surface(block, landTess, flat, false);
   if (water.length) {
-    // Banks: the drop from the ground to the water bed along every shore.
-    walls(block, landTess.edges, top, bed, (ax, ay, bx, by) => !onOutline(ax, ay, bx, by));
     const waterTess = tessellate(toRings(water), terrain);
     surface(block, waterTess, bed, true);
-    walls(block, waterTess.edges, bed, () => floor, onOutline);
+    walls(block, waterTess.edges, bed, flat, onOutline);
+    surface(block, waterTess, flat, false);
   }
-  surface(block, tessellate([ring], terrain), () => floor, false);
   emit("base", block);
 
   if (water.length) {
