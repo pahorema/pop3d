@@ -40,6 +40,8 @@ const PRIORITY: LayerId[] = [
   "forest",
   "green",
   "sand",
+  "rock",
+  "ice",
   "farmland",
   "urban",
 ];

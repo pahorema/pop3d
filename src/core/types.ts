@@ -31,6 +31,8 @@ export const LAYERS = [
   "urban",
   "farmland",
   "sand",
+  "rock",
+  "ice",
   "green",
   "forest",
   "water",

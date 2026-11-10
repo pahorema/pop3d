@@ -22,6 +22,8 @@ const PRINT_LAYERS: LayerId[] = [
   "paved",
   "farmland",
   "sand",
+  "rock",
+  "ice",
   "sport",
   "trees",
 ];

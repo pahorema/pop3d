@@ -13,6 +13,8 @@ export type AreaKind =
   | "farmland"
   | "orchard"
   | "sand"
+  | "rock"
+  | "ice"
   | "urban"
   | "sport"
   | "paved";
@@ -65,10 +67,10 @@ const AREA_RULES: Record<string, Record<string, AreaKind>> = {
     wetland: "green",
     beach: "sand",
     sand: "sand",
-    bare_rock: "sand",
-    scree: "sand",
-    shingle: "sand",
-    glacier: "sand",
+    bare_rock: "rock",
+    scree: "rock",
+    shingle: "rock",
+    glacier: "ice",
   },
   landuse: {
     forest: "forest",
@@ -94,7 +96,7 @@ const AREA_RULES: Record<string, Record<string, AreaKind>> = {
     religious: "urban",
     education: "urban",
     farmyard: "urban",
-    quarry: "sand",
+    quarry: "rock",
     basin: "water",
     reservoir: "lake",
     salt_pond: "water",

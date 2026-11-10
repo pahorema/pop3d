@@ -42,6 +42,8 @@ const PRINT_COLOR: Record<LayerId, ColorKey> = {
   urban: "urban",
   farmland: "farmland",
   sand: "sand",
+  rock: "rock",
+  ice: "ice",
   green: "green",
   forest: "forest",
   water: "water",
