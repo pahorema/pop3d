@@ -1,7 +1,7 @@
 import { DEM_HEADER_BYTES, DEM_MAGIC, type OsmPayload } from "../../shared/types";
-import type { BuildParams, DioramaData, WorkerRequest, WorkerResponse } from "../core/types";
+import type { BuildParams, WorkerRequest, WorkerResponse } from "../core/types";
 import { areaBounds } from "../geo/projection";
-import { type BuildState, buildDiorama, GRID_PAD, gridCells } from "./build";
+import { type BuildState, buildDiorama, GRID_PAD, gridCells, transferables } from "./build";
 import { buildPrint } from "./print";
 
 const scope = self as unknown as {
@@ -76,19 +76,6 @@ async function fetchElevation(params: BuildParams): Promise<Float32Array | null>
   }
 }
 
-function buffersOf(data: DioramaData): Transferable[] {
-  const buffers = new Set<ArrayBufferLike>();
-  const visit = (value: unknown): void => {
-    if (ArrayBuffer.isView(value)) buffers.add(value.buffer);
-    else if (value && typeof value === "object" && !Array.isArray(value)) Object.values(value).forEach(visit);
-  };
-  visit(data.layers);
-  visit(data.buildings);
-  visit(data.trees);
-  visit(data.terrain);
-  return [...buffers] as Transferable[];
-}
-
 async function build(id: number, params: BuildParams): Promise<void> {
   latest = id;
   const stale = () => latest !== id;
@@ -111,7 +98,7 @@ async function build(id: number, params: BuildParams): Promise<void> {
   });
   if (stale()) return;
   state = result.state;
-  scope.postMessage({ type: "built", id, data: result.data }, buffersOf(result.data));
+  scope.postMessage({ type: "built", id, data: result.data }, transferables(result.data));
 }
 
 scope.onmessage = (event) => {

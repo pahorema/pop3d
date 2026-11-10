@@ -473,7 +473,23 @@ export function buildDiorama(
       bottomY,
       sheets,
       solids: buildings.solids,
-      trees,
+      // The model's buffers leave for another thread (see `transferables`) and are gone from
+      // this one afterwards: what printing needs later has to be a copy of its own.
+      trees: { ...trees, data: trees.data.slice(), kinds: trees.kinds.slice() },
     },
   };
+}
+
+/** The buffers of a built model, to hand it over to another thread without copying it. */
+export function transferables(data: DioramaData): Transferable[] {
+  const buffers = new Set<ArrayBufferLike>();
+  const visit = (value: unknown): void => {
+    if (ArrayBuffer.isView(value)) buffers.add(value.buffer);
+    else if (value && typeof value === "object" && !Array.isArray(value)) Object.values(value).forEach(visit);
+  };
+  visit(data.layers);
+  visit(data.buildings);
+  visit(data.trees);
+  visit(data.terrain);
+  return [...buffers] as Transferable[];
 }

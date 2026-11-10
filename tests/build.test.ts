@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { OSM_COORD_SCALE, type OsmPayload, type OsmTags } from "../shared/types";
 import type { BuildParams, PrintPart } from "../src/core/types";
 import { projector } from "../src/geo/projection";
-import { buildDiorama, gridCells } from "../src/worker/build";
+import { buildDiorama, gridCells, transferables } from "../src/worker/build";
 import { buildPrint } from "../src/worker/print";
 
 const LAT = 45.65;
@@ -176,6 +176,7 @@ for (const shape of ["circle", "square", "hexagon", "rounded"] as const) {
           expect(layers).toContain(layer);
         }
         for (const part of parts) {
+          expect(part.triangles.every(Number.isFinite), `coordinates of ${part.layer}`).toBe(true);
           expect(brokenEdges(part), `broken edges in ${part.layer}`).toBe(0);
           expect(volume(part), `volume of ${part.layer}`).toBeGreaterThan(0);
         }
@@ -187,3 +188,34 @@ for (const shape of ["circle", "square", "hexagon", "rounded"] as const) {
     });
   }
 }
+
+describe("a model handed over to another thread", () => {
+  test("can still be printed, trees included", () => {
+    const params: BuildParams = {
+      area: { lat: LAT, lon: LON, shape: "circle", width: 500, depth: 500 },
+      detail: 1,
+      relief: 1,
+      roofs: true,
+    };
+    const { data, state } = buildDiorama(params, payload(), elevation(params), () => {});
+    const print = () =>
+      buildPrint(state, {
+        sizeMm: 150,
+        baseMm: 3,
+        zScale: 1.5,
+        minFeatureMm: 0.4,
+        layers: ["base", "water", "roads", "buildings", "trees"],
+      }).parts;
+    const before = print();
+    // What the worker does when the model is ready: its buffers move and are gone from here.
+    structuredClone(data, { transfer: transferables(data) });
+    expect(data.trees.data.length).toBe(0);
+    const after = print();
+    expect(after.map((part) => part.layer)).toEqual(before.map((part) => part.layer));
+    expect(after.map((part) => part.layer)).toContain("trees");
+    for (let i = 0; i < after.length; i++) {
+      expect(after[i]!.triangles.every(Number.isFinite), after[i]!.layer).toBe(true);
+      expect(after[i]!.triangles).toEqual(before[i]!.triangles);
+    }
+  });
+});
