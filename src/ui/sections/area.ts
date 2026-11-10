@@ -87,6 +87,10 @@ export function createAreaSection(
     onChange: (value) => store.set({ relief: Math.round(value * 10) / 10 }),
   });
 
+  const roofs = toggle(t("area.roofs"), t("area.roofs.hint"), state.roofs, (value) =>
+    store.set({ roofs: value }),
+  );
+
   const surface = h("span", { class: "meta" });
   const warning = h("div", { class: "note", hidden: true }, t("area.large"));
   const generate = button(t("area.generate"), actions.generate, {
@@ -108,6 +112,7 @@ export function createAreaSection(
     detail.set(current.detail);
     detailHint.textContent = t(`area.detail.hint.${current.detail}` as MessageKey);
     relief.set(current.relief);
+    roofs.set(current.roofs);
     const squareKm = shapeArea(area.shape, area.width, area.depth) / 1e6;
     surface.textContent = `${formatNumber(squareKm, squareKm < 1 ? 2 : 1)} km²`;
     warning.hidden = squareKm < 6;
@@ -121,7 +126,7 @@ export function createAreaSection(
         : t("area.current");
   };
   refresh();
-  store.on(["area", "freeAspect", "detail", "relief", "busy", "stale", "revision"], refresh);
+  store.on(["area", "freeAspect", "detail", "relief", "roofs", "busy", "stale", "revision"], refresh);
 
   return h(
     "div",
@@ -135,7 +140,7 @@ export function createAreaSection(
       free.element,
       h("div", { class: "field-row" }, h("span", null, t("area.surface")), surface),
     ),
-    section(t("area.detail"), detail.element, detailHint, relief.element),
+    section(t("area.detail"), detail.element, detailHint, relief.element, roofs.element),
     section(null, warning, generate),
   );
 }

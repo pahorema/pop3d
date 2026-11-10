@@ -92,7 +92,8 @@ function dedupe(places: (Place | null)[]): Place[] {
   const out: Place[] = [];
   for (const place of places) {
     if (!place) continue;
-    const key = `${place.name}|${place.lat.toFixed(3)},${place.lon.toFixed(3)}`;
+    // Several OSM objects often describe the same place: one line per distinct label is enough.
+    const key = `${place.name}|${place.detail}`.toLowerCase();
     if (seen.has(key) || seen.has(place.id)) continue;
     seen.add(key);
     seen.add(place.id);

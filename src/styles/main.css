@@ -299,6 +299,12 @@ button {
   user-select: text;
 }
 
+.search-input::-webkit-search-cancel-button,
+.search-input::-webkit-search-decoration {
+  -webkit-appearance: none;
+  display: none;
+}
+
 .search-input::placeholder {
   color: var(--ink-faint);
 }
