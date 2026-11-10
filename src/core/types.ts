@@ -54,7 +54,9 @@ export interface MeshData {
 }
 
 export interface BuildingInfo {
+  /** OSM id; `relation` tells which kind of object it belongs to. */
   id: number;
+  relation?: boolean;
   name?: string;
   /** Raw OSM building value: "house", "church", "yes"... */
   kind: string;

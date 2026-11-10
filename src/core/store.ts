@@ -91,6 +91,8 @@ type Listener = (state: AppState, changed: ReadonlySet<keyof AppState>) => void;
 /** Minimal observable state container: components subscribe and redraw what changed. */
 export class Store {
   private listeners = new Set<Listener>();
+  /** Listeners owned by interface components, dropped together when the interface is rebuilt. */
+  private interfaceListeners = new Set<Listener>();
 
   constructor(public state: AppState) {}
 
@@ -101,7 +103,7 @@ export class Store {
     }
     if (!changed.size) return;
     this.state = { ...this.state, ...patch };
-    for (const listener of [...this.listeners]) listener(this.state, changed);
+    for (const listener of [...this.listeners, ...this.interfaceListeners]) listener(this.state, changed);
   }
 
   subscribe(listener: Listener): () => void {
@@ -109,11 +111,21 @@ export class Store {
     return () => this.listeners.delete(listener);
   }
 
-  /** Runs `listener` whenever one of `keys` changes. */
+  /**
+   * Runs `listener` whenever one of `keys` changes. Meant for interface components: these
+   * subscriptions last until `resetInterface` is called.
+   */
   on(keys: (keyof AppState)[], listener: (state: AppState) => void): () => void {
-    return this.subscribe((state, changed) => {
+    const wrapped: Listener = (state, changed) => {
       if (keys.some((key) => changed.has(key))) listener(state);
-    });
+    };
+    this.interfaceListeners.add(wrapped);
+    return () => this.interfaceListeners.delete(wrapped);
+  }
+
+  /** Forgets every component subscription, before the interface is built again. */
+  resetInterface(): void {
+    this.interfaceListeners.clear();
   }
 }
 

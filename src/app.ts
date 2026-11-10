@@ -109,6 +109,8 @@ export class App {
   private mountInterface(): void {
     this.ui?.remove();
     const { store } = this;
+    store.resetInterface();
+    this.layersSection = null;
     this.caption = createCaption(() => store.set({ lang: store.state.lang === "it" ? "en" : "it" }));
     this.status = createStatus();
     this.inspector = createInspector({

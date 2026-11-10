@@ -547,6 +547,7 @@ export function buildBuildings(
       item.box,
       {
         id: Math.abs(id),
+        relation: id < 0 || undefined,
         name: tags.name,
         kind: kind === "yes" && tags.amenity ? tags.amenity : kind,
         height: Math.round((size.height - size.minHeight) * 10) / 10,

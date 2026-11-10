@@ -311,7 +311,7 @@ export function createInspector(actions: { close(): void; hideBuilding(): void }
                 "a",
                 {
                   class: "button button-ghost",
-                  href: `https://www.openstreetmap.org/way/${info.id}`,
+                  href: `https://www.openstreetmap.org/${info.relation ? "relation" : "way"}/${info.id}`,
                   target: "_blank",
                   rel: "noopener",
                   title: t("inspect.osm"),
