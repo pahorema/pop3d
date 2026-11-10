@@ -331,6 +331,27 @@ export const THEMES: Theme[] = [
 
 export const DEFAULT_THEME = "diorama";
 
+/** Which palette entry gives each layer its colour in exported, multi-colour prints. */
+export const LAYER_COLOR_KEY: Record<LayerId, ColorKey> = {
+  base: "ground",
+  ground: "ground",
+  urban: "urban",
+  farmland: "farmland",
+  sand: "sand",
+  rock: "rock",
+  ice: "ice",
+  green: "green",
+  forest: "forest",
+  water: "water",
+  sport: "sport",
+  paved: "paved",
+  paths: "paths",
+  roads: "roads",
+  rail: "rail",
+  buildings: "walls",
+  trees: "trees",
+};
+
 export function findTheme(id: string): Theme {
   return THEMES.find((theme) => theme.id === id) ?? THEMES[0]!;
 }

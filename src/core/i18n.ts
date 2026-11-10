@@ -152,6 +152,11 @@ const it = {
   "export.print.dimensions": "Ingombro",
   "export.print.stl": "STL · un solo pezzo",
   "export.print.3mf": "3MF · parti a colori",
+  "export.api": "API",
+  "export.api.hint": "Lo stesso modello da script o da un altro sito: un indirizzo che restituisce il file.",
+  "export.api.copy": "Copia il link",
+  "export.api.docs": "Documentazione",
+  "export.api.copied": "Link copiato negli appunti",
   "export.working": "Preparo il file…",
   "export.done": "File pronto: {name}",
   "export.failed": "Esportazione non riuscita.",
@@ -356,6 +361,11 @@ const en: typeof it = {
   "export.print.dimensions": "Footprint",
   "export.print.stl": "STL · single piece",
   "export.print.3mf": "3MF · coloured parts",
+  "export.api": "API",
+  "export.api.hint": "The same model from a script or another site: one address that returns the file.",
+  "export.api.copy": "Copy link",
+  "export.api.docs": "Documentation",
+  "export.api.copied": "Link copied to the clipboard",
   "export.working": "Preparing the file…",
   "export.done": "File ready: {name}",
   "export.failed": "Export failed.",
@@ -427,6 +437,11 @@ export function setLanguage(lang: Lang): void {
 
 export function language(): Lang {
   return current;
+}
+
+/** Looks a message up in a given language, without touching the current one. */
+export function translate(lang: Lang, key: MessageKey): string {
+  return dictionaries[lang][key] ?? key;
 }
 
 /** Translates a message, filling `{placeholders}` from `values`. */
