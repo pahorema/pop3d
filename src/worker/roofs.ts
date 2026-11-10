@@ -265,7 +265,7 @@ export function roofPieces(outer: Ring, shape: RoofShape, height: number, tags: 
   const margin = 2;
   const far = length + margin;
   const regions: { ring: [number, number][]; z: (a: number, b: number) => number }[] = [];
-  const side = (a: number, b: number) => height * (1 - Math.abs(b) / width);
+  const side = (_a: number, b: number) => height * (1 - Math.abs(b) / width);
   const ridge = length - width;
   if (shape === "gabled" || ridge < 0.4) {
     if (shape === "hipped") return roofPieces(outer, "pyramidal", height, tags);

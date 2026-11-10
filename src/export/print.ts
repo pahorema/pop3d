@@ -103,7 +103,8 @@ export function write3mf(
 
   const assembly = parts.length + 2;
   chunks.push(`  <object id="${assembly}" type="model" name="${xml(title)}">\n   <components>\n`);
-  parts.forEach((_, index) => chunks.push(`    <component objectid="${index + 2}"/>\n`));
+  for (let index = 0; index < parts.length; index++)
+    chunks.push(`    <component objectid="${index + 2}"/>\n`);
   chunks.push(
     "   </components>\n  </object>\n </resources>\n",
     ` <build>\n  <item objectid="${assembly}"/>\n </build>\n</model>\n`,

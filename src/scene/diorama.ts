@@ -201,7 +201,7 @@ export class Diorama {
 
     for (const layer of LAYERS) {
       const mesh = data.layers[layer];
-      if (!mesh || !mesh.indices.length) continue;
+      if (!mesh?.indices.length) continue;
       const material = new THREE.MeshStandardMaterial({ metalness: 0 });
       this.materials.set(layer, material);
       const object = new THREE.Mesh(geometryOf(mesh), material);
@@ -555,7 +555,7 @@ export class Diorama {
 
   /** Finds the building under a ray, or -1. */
   pick(raycaster: THREE.Raycaster): number {
-    if (!this.buildingMesh || !this.buildingMesh.visible) return -1;
+    if (!this.buildingMesh?.visible) return -1;
     const hit = raycaster.intersectObject(this.buildingMesh, false)[0];
     if (!hit?.face) return -1;
     return this.data.buildings.owner[hit.face.a] ?? -1;
