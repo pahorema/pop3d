@@ -1,37 +1,28 @@
-import { Engine } from "./core/engine";
-import type { BuildParams } from "./core/types";
-import { Diorama } from "./scene/diorama";
-import { findTheme } from "./scene/themes";
-import { Viewer } from "./scene/viewer";
+import "./styles/main.css";
+import { App } from "./app";
+import { detectLanguage, setLanguage, t } from "./core/i18n";
+import { defaultState, loadPreferences, readUrl, Store } from "./core/store";
+import { h } from "./ui/dom";
 
-const app = document.querySelector<HTMLElement>("#app")!;
-app.style.cssText = "position:fixed;inset:0";
-const query = new URLSearchParams(location.search);
-const theme = findTheme(query.get("t") ?? "diorama");
+const root = document.querySelector<HTMLElement>("#app")!;
+const lang = detectLanguage();
+setLanguage(lang);
 
-const viewer = new Viewer(app, {
-  shadows: true,
-  shadowSoftness: 2.5,
-  ambientOcclusion: true,
-  miniature: Number(query.get("m") ?? 0.5),
-  sunAzimuth: 135,
-  sunElevation: 42,
-  autoRotate: false,
-});
-viewer.setTheme(theme);
+function supportsWebGl2(): boolean {
+  try {
+    return Boolean(document.createElement("canvas").getContext("webgl2"));
+  } catch {
+    return false;
+  }
+}
 
-const [lat, lon] = (query.get("c") ?? "45.6503,13.7678").split(",").map(Number) as [number, number];
-const size = Number(query.get("s") ?? 700);
-const params: BuildParams = {
-  area: { lat, lon, shape: (query.get("shape") as any) ?? "circle", width: size, depth: size },
-  detail: Number(query.get("d") ?? 1) as 0 | 1 | 2,
-  relief: Number(query.get("r") ?? 1),
-  roofs: true,
-};
+if (!supportsWebGl2()) {
+  root.append(h("div", { class: "fatal" }, h("h1", null, "pop3d"), h("p", null, t("error.webgl"))));
+} else {
+  const { state } = readUrl(loadPreferences(defaultState(lang)), location.search);
+  const app = new App(root, new Store(state));
+  void app.generate();
+  if (__DEV__) Object.assign(window, { app });
+}
 
-const engine = new Engine();
-const data = await engine.build(params, (stage, ratio) => console.log(stage, ratio));
-console.log(data.stats);
-const diorama = new Diorama(data, { theme, buildingColors: "theme", edges: false, faceted: false });
-viewer.setDiorama(diorama, { animate: true, keepView: false });
-Object.assign(window, { viewer, diorama });
+declare const __DEV__: boolean;

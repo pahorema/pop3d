@@ -42,10 +42,18 @@ async function request(url: string): Promise<Response> {
   return response;
 }
 
+// The last downloads are kept, so that changing shape, detail or relief of the same area
+// rebuilds the model without going back to the network.
+let osmCache: { query: string; payload: OsmPayload } | null = null;
+let elevationCache: { query: string; grid: Float32Array } | null = null;
+
 async function fetchOsm(params: BuildParams): Promise<OsmPayload> {
   const b = areaBounds(params.area, 25);
   const query = `s=${b.s.toFixed(5)}&w=${b.w.toFixed(5)}&n=${b.n.toFixed(5)}&e=${b.e.toFixed(5)}`;
-  return (await request(`/api/osm?${query}`)).json() as Promise<OsmPayload>;
+  if (osmCache?.query === query) return osmCache.payload;
+  const payload = (await (await request(`/api/osm?${query}`)).json()) as OsmPayload;
+  osmCache = { query, payload };
+  return payload;
 }
 
 async function fetchElevation(params: BuildParams): Promise<Float32Array | null> {
@@ -53,11 +61,14 @@ async function fetchElevation(params: BuildParams): Promise<Float32Array | null>
   const size = gridCells(params) + 1;
   const b = areaBounds(params.area, GRID_PAD);
   const query = `s=${b.s.toFixed(7)}&w=${b.w.toFixed(7)}&n=${b.n.toFixed(7)}&e=${b.e.toFixed(7)}&size=${size}`;
+  if (elevationCache?.query === query) return elevationCache.grid;
   try {
     const buffer = await (await request(`/api/dem?${query}`)).arrayBuffer();
     const header = new DataView(buffer);
     if (header.getUint32(0, true) !== DEM_MAGIC || header.getUint32(4, true) !== size) return null;
-    return new Float32Array(buffer, DEM_HEADER_BYTES, size * size);
+    const grid = new Float32Array(buffer, DEM_HEADER_BYTES, size * size);
+    elevationCache = { query, grid };
+    return grid;
   } catch (error) {
     // A flat model beats no model: elevation is a nice-to-have.
     console.warn("[pop3d] elevation unavailable, building flat", error);

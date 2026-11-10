@@ -29,6 +29,12 @@ export interface AppState {
   view: ViewSettings;
   panel: PanelId | null;
   lang: Lang;
+  /** A diorama is being fetched or built. */
+  busy: boolean;
+  /** The selected area differs from the one on screen and needs new source data. */
+  stale: boolean;
+  /** Bumped every time a new diorama lands on screen. */
+  revision: number;
 }
 
 export const MIN_SPAN = 120;
@@ -74,6 +80,9 @@ export function defaultState(lang: Lang): AppState {
     },
     panel: null,
     lang,
+    busy: false,
+    stale: false,
+    revision: 0,
   };
 }
 
