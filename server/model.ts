@@ -23,7 +23,7 @@ import { osmExtract } from "./overpass";
 
 const DAY = 86_400_000;
 /** Bump when the generated geometry changes, so that cached models are rebuilt. */
-const MODEL_VERSION = 1;
+const MODEL_VERSION = 2;
 const MAX_WAITING = 8;
 const JOB_TIMEOUT_MS = 120_000;
 
