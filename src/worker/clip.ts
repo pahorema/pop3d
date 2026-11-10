@@ -10,27 +10,34 @@ import {
   type PolyPath64,
   PolyTree64,
   rectClipLines,
+  simplifyPaths,
 } from "clipper2-ts";
 import type { Polygon, Ring } from "./poly";
 
 /** Clipper works on integers: one unit is a centimetre. */
 export const SCALE = 100;
 
+/** Regularized shapes live on a grid this many times finer: one unit is a millimetre. */
+export const FINE = 10;
+
 export type { Path64, Paths64 };
 
-export function toPath(ring: ArrayLike<number>): Path64 {
+/** `zoom` is 1 for ordinary paths and `FINE` for regularized ones. */
+export function toPath(ring: ArrayLike<number>, zoom = 1): Path64 {
+  const unit = SCALE * zoom;
   const path: Path64 = new Array(ring.length / 2);
   for (let i = 0, p = 0; i < ring.length; i += 2, p++) {
-    path[p] = { x: Math.round(ring[i]! * SCALE), y: Math.round(ring[i + 1]! * SCALE) };
+    path[p] = { x: Math.round(ring[i]! * unit), y: Math.round(ring[i + 1]! * unit) };
   }
   return path;
 }
 
-export function fromPath(path: Path64): Ring {
+export function fromPath(path: Path64, zoom = 1): Ring {
+  const unit = SCALE * zoom;
   const ring: Ring = new Array(path.length * 2);
   for (let i = 0; i < path.length; i++) {
-    ring[i * 2] = path[i]!.x / SCALE;
-    ring[i * 2 + 1] = path[i]!.y / SCALE;
+    ring[i * 2] = path[i]!.x / unit;
+    ring[i * 2 + 1] = path[i]!.y / unit;
   }
   return ring;
 }
@@ -68,37 +75,37 @@ export function difference(subject: Paths64, clip: Paths64): Paths64 {
   return clip.length ? run(ClipType.Difference, subject, clip, FillRule.NonZero) : subject;
 }
 
-function collect(node: PolyPath64, out: Polygon[]): void {
+function collect(node: PolyPath64, zoom: number, out: Polygon[]): void {
   for (let i = 0; i < node.count; i++) {
     const outerNode = node.child(i);
     const outer = outerNode.poly;
     if (!outer || outer.length < 3) continue;
-    const polygon: Polygon = { outer: fromPath(outer), holes: [] };
+    const polygon: Polygon = { outer: fromPath(outer, zoom), holes: [] };
     for (let h = 0; h < outerNode.count; h++) {
       const holeNode = outerNode.child(h);
-      if (holeNode.poly && holeNode.poly.length >= 3) polygon.holes.push(fromPath(holeNode.poly));
+      if (holeNode.poly && holeNode.poly.length >= 3) polygon.holes.push(fromPath(holeNode.poly, zoom));
       // Islands inside holes are top-level polygons again.
-      collect(holeNode, out);
+      collect(holeNode, zoom, out);
     }
     out.push(polygon);
   }
 }
 
 /** Groups clean paths into polygons with their holes. */
-export function toPolygons(paths: Paths64): Polygon[] {
+export function toPolygons(paths: Paths64, zoom = 1): Polygon[] {
   if (!paths.length) return [];
   const clipper = new Clipper64();
   clipper.addSubject(paths);
   const tree = new PolyTree64();
   clipper.execute(ClipType.Union, FillRule.NonZero, tree);
   const out: Polygon[] = [];
-  collect(tree, out);
+  collect(tree, zoom, out);
   return out;
 }
 
 /** All rings of the given paths as flat coordinate arrays (outers CCW, holes CW). */
-export function toRings(paths: Paths64): Ring[] {
-  return paths.filter((path) => path.length >= 3).map(fromPath);
+export function toRings(paths: Paths64, zoom = 1): Ring[] {
+  return paths.filter((path) => path.length >= 3).map((path) => fromPath(path, zoom));
 }
 
 /**
@@ -117,13 +124,37 @@ export function inflateLines(lines: Paths64, width: number): Paths64 {
 
 /** Grows (or, with a negative amount, shrinks) closed shapes by `amount` metres. */
 export function inflatePolygons(paths: Paths64, amount: number, round = false): Paths64 {
+  return offsetPolygons(paths, amount * SCALE, round);
+}
+
+function offsetPolygons(paths: Paths64, delta: number, round: boolean): Paths64 {
   if (!paths.length) return [];
-  const delta = amount * SCALE;
   const offset = new ClipperOffset(2, Math.max(3, Math.abs(delta) * 0.04));
   offset.addPaths(paths, round ? JoinType.Round : JoinType.Miter, EndType.Polygon);
   const solution: Paths64 = [];
   offset.execute(delta, solution);
   return solution;
+}
+
+/**
+ * Pulls outlines apart wherever they touch, pinch or overlap by a hair, and drops whatever is
+ * thinner than that.
+ *
+ * Clipped shapes are full of such spots (two lakes sharing a node, a road cutting a wood right
+ * to its edge) and a solid cannot be closed properly around a wall of no width. The shapes come
+ * out `margin` metres smaller all around, which no print can show.
+ *
+ * The result is in `FINE` units: at the usual centimetre a margin this small would drown in
+ * rounding. Convert it with `toRings(paths, FINE)`.
+ */
+export function regularize(paths: Paths64, margin = 0.01): Paths64 {
+  if (!paths.length) return [];
+  const unit = SCALE * FINE;
+  const fine = paths.map((path) => path.map((point) => ({ x: point.x * FINE, y: point.y * FINE })));
+  const shrunk = offsetPolygons(fine, -2 * margin * unit, false);
+  const grown = offsetPolygons(shrunk, margin * unit, false);
+  // Offsetting leaves the odd kink a unit or two wide: iron them out.
+  return simplifyPaths(grown, 0.2 * margin * unit, true);
 }
 
 /** Cuts open polylines down to an axis-aligned rectangle given in metres. */
