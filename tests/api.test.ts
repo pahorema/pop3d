@@ -233,7 +233,9 @@ describe("model builds", () => {
     expect(model).toContain('name="Edifici"');
     expect(model).toContain('name="Prati e parchi"');
     expect(model).not.toContain('name="Strade"');
-    expect(model.match(/<object /g)).toHaveLength(mf.meta.layers.length + 1);
+    expect(model.match(/<object /g)).toHaveLength(mf.meta.layers.length);
+    expect(model.match(/<item /g)).toHaveLength(mf.meta.layers.length);
+    expect(model.match(/<m:colorgroup /g)).toHaveLength(mf.meta.layers.length);
   });
 
   test("obj comes as a zip named after the place", () => {

@@ -128,7 +128,7 @@ scope.onmessage = (event) => {
       const { parts, scale } = buildPrint(state, message.params);
       scope.postMessage(
         { type: "printed", id: message.id, parts, scale },
-        parts.map((part) => part.triangles.buffer as ArrayBuffer),
+        parts.flatMap((part) => [part.triangles.buffer as ArrayBuffer, part.shells.buffer as ArrayBuffer]),
       );
     } catch (error) {
       const code = error instanceof BuildError ? error.code : "internal";

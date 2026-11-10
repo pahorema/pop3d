@@ -38,14 +38,30 @@ export function writeStl(parts: PrintPart[], title: string): Bytes {
   return new Uint8Array(buffer);
 }
 
-/** Millimetres with three decimals; adding zero keeps "-0.000" from splitting welded corners. */
-const micron = (value: number) => (Math.round(value * 1000) / 1000 + 0).toFixed(3);
+/**
+ * Shortest decimal that reads back as the very same 32-bit float. Coordinates are written in
+ * full: rounding them would merge corners a hair apart and tie shells in knots there.
+ */
+function exact(value: number): string {
+  if (value === 0) return "0";
+  for (let digits = 5; digits < 9; digits++) {
+    const text = String(Number(value.toPrecision(digits)));
+    if (Math.fround(Number(text)) === value) return text;
+  }
+  return String(Number(value.toPrecision(9)));
+}
 
 const xml = (text: string) => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/"/g, "&quot;");
 
 /**
- * 3MF package with one object per part, each with its own base material, grouped as components
- * of a single printable item. Slicers open it as one model with separately colourable parts.
+ * 3MF package with one object per part, each bound to its own colour.
+ *
+ * The layout is the one slicers actually act on: every part is a separate build item whose
+ * `pid` points at a colour group of the Materials extension holding a single colour. Bambu
+ * Studio and OrcaSlicer turn each distinct colour into a filament slot and, when asked to load
+ * the file "as a single object with multiple parts", keep the parts aligned with their slot.
+ * (Colours given as core `basematerials` on the components of one assembly are valid 3MF too,
+ * but OrcaSlicer ignores them.)
  */
 export function write3mf(
   parts: PrintPart[],
@@ -56,36 +72,40 @@ export function write3mf(
   const chunks: string[] = [];
   chunks.push(
     '<?xml version="1.0" encoding="UTF-8"?>\n',
-    '<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02">\n',
+    '<model unit="millimeter" xml:lang="en-US" xmlns="http://schemas.microsoft.com/3dmanufacturing/core/2015/02" xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02">\n',
     ` <metadata name="Title">${xml(title)}</metadata>\n`,
     ' <metadata name="Application">pop3d</metadata>\n',
     " <resources>\n",
-    '  <basematerials id="1">\n',
   );
-  for (const part of parts) {
+  // Colour groups come first and in part order: slicers number filament slots in that order.
+  parts.forEach((part, index) => {
     const color = (colors[part.layer] ?? "#cccccc").toUpperCase();
-    chunks.push(`   <base name="${xml(names[part.layer] ?? part.layer)}" displaycolor="${color}FF"/>\n`);
-  }
-  chunks.push("  </basematerials>\n");
+    chunks.push(`  <m:colorgroup id="${index + 1}"><m:color color="${color}FF"/></m:colorgroup>\n`);
+  });
 
+  const firstObject = parts.length + 1;
   parts.forEach((part, index) => {
     const t = part.triangles;
-    // Weld identical corners: 3MF wants indexed meshes and slicers need shared vertices.
+    // Weld corners that are exactly the same, one shell at a time: 3MF wants indexed meshes,
+    // and shells that merely touch must not end up sharing an edge.
+    const starts = new Set(part.shells);
     const lookup = new Map<string, number>();
     const vertices: string[] = [];
     const triangles: string[] = [];
     const corner = [0, 0, 0];
     for (let i = 0; i < t.length; i += 9) {
+      if (starts.has(i / 9)) lookup.clear();
       for (let k = 0; k < 3; k++) {
-        const x = micron(t[i + k * 3]!);
-        const y = micron(t[i + k * 3 + 1]!);
-        const z = micron(t[i + k * 3 + 2]!);
+        // Adding zero turns -0 into 0, which is the same corner.
+        const x = t[i + k * 3]! + 0;
+        const y = t[i + k * 3 + 1]! + 0;
+        const z = t[i + k * 3 + 2]! + 0;
         const key = `${x} ${y} ${z}`;
         let id = lookup.get(key);
         if (id === undefined) {
-          id = lookup.size;
+          id = vertices.length;
           lookup.set(key, id);
-          vertices.push(`<vertex x="${x}" y="${y}" z="${z}"/>`);
+          vertices.push(`<vertex x="${exact(x)}" y="${exact(y)}" z="${exact(z)}"/>`);
         }
         corner[k] = id;
       }
@@ -94,7 +114,7 @@ export function write3mf(
       }
     }
     chunks.push(
-      `  <object id="${index + 2}" type="model" name="${xml(names[part.layer] ?? part.layer)}" pid="1" pindex="${index}">\n   <mesh>\n    <vertices>\n`,
+      `  <object id="${firstObject + index}" type="model" name="${xml(names[part.layer] ?? part.layer)}" pid="${index + 1}" pindex="0">\n   <mesh>\n    <vertices>\n`,
       vertices.join("\n"),
       "\n    </vertices>\n    <triangles>\n",
       triangles.join("\n"),
@@ -102,14 +122,11 @@ export function write3mf(
     );
   });
 
-  const assembly = parts.length + 2;
-  chunks.push(`  <object id="${assembly}" type="model" name="${xml(title)}">\n   <components>\n`);
-  for (let index = 0; index < parts.length; index++)
-    chunks.push(`    <component objectid="${index + 2}"/>\n`);
-  chunks.push(
-    "   </components>\n  </object>\n </resources>\n",
-    ` <build>\n  <item objectid="${assembly}"/>\n </build>\n</model>\n`,
-  );
+  chunks.push(" </resources>\n <build>\n");
+  for (let index = 0; index < parts.length; index++) {
+    chunks.push(`  <item objectid="${firstObject + index}"/>\n`);
+  }
+  chunks.push(" </build>\n</model>\n");
 
   const archive = zipSync(
     {

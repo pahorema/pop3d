@@ -24,8 +24,8 @@ function tetrahedron(dx: number): Float32Array {
 }
 
 const parts: PrintPart[] = [
-  { layer: "base", triangles: tetrahedron(0) },
-  { layer: "buildings", triangles: tetrahedron(5) },
+  { layer: "base", triangles: tetrahedron(0), shells: new Uint32Array([0]) },
+  { layer: "buildings", triangles: tetrahedron(5), shells: new Uint32Array([0]) },
 ];
 
 describe("print exports", () => {
@@ -42,7 +42,7 @@ describe("print exports", () => {
     expect(new TextDecoder().decode(new Uint8Array(buffer, 0, 5))).not.toBe("solid");
   });
 
-  test("3MF is a valid package with indexed, coloured parts", () => {
+  test("3MF is a valid package with indexed parts", () => {
     const colors = { base: "#aabbcc", buildings: "#ff8800" } as Record<LayerId, string>;
     const names = { base: "Terrain & base", buildings: "Buildings" } as Record<LayerId, string>;
     const files = unzipSync(write3mf(parts, colors, names, 'A "quoted" <title>'));
@@ -51,8 +51,6 @@ describe("print exports", () => {
 
     const model = strFromU8(files["3D/3dmodel.model"]!);
     expect(model).toContain('unit="millimeter"');
-    expect(model).toContain('displaycolor="#AABBCCFF"');
-    expect(model).toContain('displaycolor="#FF8800FF"');
     expect(model).toContain("Terrain &amp; base");
     expect(model).toContain("A &quot;quoted&quot; &lt;title>");
     // Each tetrahedron is welded down to four shared vertices.
@@ -61,13 +59,11 @@ describe("print exports", () => {
     for (const [, a, b, c] of model.matchAll(/<triangle v1="(\d+)" v2="(\d+)" v3="(\d+)"/g)) {
       for (const index of [a, b, c]) expect(Number(index)).toBeLessThan(4);
     }
-    expect(model.match(/<component /g)).toHaveLength(2);
-    expect(model.match(/<item /g)).toHaveLength(1);
     // Tags must balance for the XML to be well formed.
     for (const tag of [
       "model",
       "resources",
-      "basematerials",
+      "m:colorgroup",
       "object",
       "mesh",
       "vertices",
@@ -76,6 +72,58 @@ describe("print exports", () => {
     ]) {
       expect(model.split(`<${tag}`).length).toBe(model.split(`</${tag}>`).length);
     }
+  });
+
+  test("3MF colours are written the way slicers map to filaments", () => {
+    const colors = { base: "#aabbcc", buildings: "#ff8800" } as Record<LayerId, string>;
+    const names = { base: "Base", buildings: "Buildings" } as Record<LayerId, string>;
+    const model = strFromU8(unzipSync(write3mf(parts, colors, names, "t"))["3D/3dmodel.model"]!);
+    // The Materials extension must be declared with the conventional "m" prefix: Bambu Studio
+    // and OrcaSlicer look for the literal tag names.
+    expect(model).toContain('xmlns:m="http://schemas.microsoft.com/3dmanufacturing/material/2015/02"');
+    expect(model).toContain('<m:colorgroup id="1"><m:color color="#AABBCCFF"/></m:colorgroup>');
+    expect(model).toContain('<m:colorgroup id="2"><m:color color="#FF8800FF"/></m:colorgroup>');
+    // One colour group per part, one top-level object per part pointing at it.
+    expect(model).toContain('<object id="3" type="model" name="Base" pid="1" pindex="0">');
+    expect(model).toContain('<object id="4" type="model" name="Buildings" pid="2" pindex="0">');
+    expect(model.match(/<item objectid="\d+"\/>/g)).toEqual(['<item objectid="3"/>', '<item objectid="4"/>']);
+    expect(model).not.toContain("<components>");
+    // Resource ids are unique across colour groups and objects.
+    const ids = [...model.matchAll(/<(?:m:colorgroup|object) id="(\d+)"/g)].map((match) => match[1]);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  test("3MF welds vertices within a shell, never across touching shells", () => {
+    // Two tetrahedra sharing a whole edge: welded together that edge would have four faces.
+    const a = tetrahedron(0);
+    const b = tetrahedron(0);
+    for (let i = 2; i < b.length; i += 3) b[i] = -b[i]!;
+    for (let i = 0; i < b.length; i += 9) {
+      // Mirroring flips the winding: swap two corners to keep the faces pointing outwards.
+      for (let k = 0; k < 3; k++) [b[i + 3 + k], b[i + 6 + k]] = [b[i + 6 + k]!, b[i + 3 + k]!];
+    }
+    const both = new Float32Array([...a, ...b]);
+    const part: PrintPart = { layer: "buildings", triangles: both, shells: new Uint32Array([0, 4]) };
+    const model = strFromU8(
+      unzipSync(
+        write3mf(
+          [part],
+          { buildings: "#ffffff" } as Record<LayerId, string>,
+          {} as Record<LayerId, string>,
+          "t",
+        ),
+      )["3D/3dmodel.model"]!,
+    );
+    expect(model.match(/<vertex /g)).toHaveLength(8);
+    const edges = new Map<string, number>();
+    for (const [, v1, v2, v3] of model.matchAll(/<triangle v1="(\d+)" v2="(\d+)" v3="(\d+)"/g)) {
+      const corners = [Number(v1), Number(v2), Number(v3)];
+      for (let k = 0; k < 3; k++) {
+        const key = [corners[k]!, corners[(k + 1) % 3]!].sort((x, y) => x - y).join("-");
+        edges.set(key, (edges.get(key) ?? 0) + 1);
+      }
+    }
+    expect([...edges.values()].every((count) => count === 2)).toBe(true);
   });
 });
 

@@ -1,13 +1,31 @@
 import earcut from "earcut";
 import { type LayerId, type PrintParams, type PrintPart, TREE_STRIDE } from "../core/types";
 import type { BuildState } from "./build";
-import { difference, inflatePolygons, intersect, type Paths64, toPath, toRings, union } from "./clip";
-import { distanceToRing, type Polygon } from "./poly";
-import { type Tessellation, tessellate } from "./tessellate";
+import {
+  difference,
+  FINE,
+  inflatePolygons,
+  intersect,
+  type Paths64,
+  regularize,
+  toPath,
+  toPolygons,
+  toRings,
+  union,
+} from "./clip";
+import type { Polygon, Ring } from "./poly";
+import { straighten, type Tessellation, tessellate } from "./tessellate";
 
 /** Triangle soup in printer space: x east, y north, z up, millimetres. */
 class Soup {
   data: number[] = [];
+  shells: number[] = [];
+
+  /** Marks the start of a new closed shell. */
+  shell(): void {
+    const index = this.data.length / 9;
+    if (this.shells[this.shells.length - 1] !== index) this.shells.push(index);
+  }
 
   triangle(
     ax: number,
@@ -52,10 +70,10 @@ const RIBBON_WIDTH: Partial<Record<LayerId, number>> = { roads: 6, paths: 2, rai
 /**
  * Rebuilds the model as closed solids for 3D printing.
  *
- * The terrain becomes one block with the water recessed into it; every other layer is a thin
- * slab resting on it and every building a prism sunk slightly into the ground, so that a slicer
- * fuses everything into a single object. Parts are returned separately to allow multi-colour
- * prints.
+ * The terrain becomes a plate as deep as the water bed, with the land resting on it; every other
+ * layer is a thin slab on top and every building a prism sunk slightly into the ground. Each
+ * piece is a closed shell of its own and they all overlap or touch, so that a slicer fuses them
+ * into a single object. Parts are returned separately to allow multi-colour prints.
  */
 export function buildPrint(state: BuildState, params: PrintParams): { parts: PrintPart[]; scale: number } {
   const { terrain, ring, sheets } = state;
@@ -65,11 +83,8 @@ export function buildPrint(state: BuildState, params: PrintParams): { parts: Pri
   const feature = params.minFeatureMm;
   const wanted = new Set(params.layers);
   const floor = -params.baseMm;
-  const recess = wanted.has("water") ? feature * 2 : 0;
 
   const top: Height = (x, y) => terrain.heightAt(x, y) * vertical;
-  const onOutline = (ax: number, ay: number, bx: number, by: number) =>
-    distanceToRing((ax + bx) / 2, (ay + by) / 2, ring) < 0.03;
 
   const surface = (soup: Soup, tess: Tessellation, z: Height, up: boolean): void => {
     const { xy, triangles } = tess;
@@ -91,24 +106,16 @@ export function buildPrint(state: BuildState, params: PrintParams): { parts: Pri
     }
   };
 
-  const walls = (
-    soup: Soup,
-    edges: number[],
-    high: Height,
-    low: Height,
-    filter?: (ax: number, ay: number, bx: number, by: number) => boolean,
-  ): void => {
+  const walls = (soup: Soup, edges: number[], high: Height, low: Height): void => {
     for (let i = 0; i < edges.length; i += 4) {
       const ax = edges[i]!;
       const ay = edges[i + 1]!;
       const bx = edges[i + 2]!;
       const by = edges[i + 3]!;
-      if (filter && !filter(ax, ay, bx, by)) continue;
       const aTop = high(ax, ay);
       const bTop = high(bx, by);
       const aLow = low(ax, ay);
       const bLow = low(bx, by);
-      if (aTop - aLow < 1e-6 && bTop - bLow < 1e-6) continue;
       const x0 = ax * scale;
       const y0 = ay * scale;
       const x1 = bx * scale;
@@ -119,52 +126,51 @@ export function buildPrint(state: BuildState, params: PrintParams): { parts: Pri
   };
 
   /** Closed slab between two surfaces over the given outlines. */
-  const slab = (soup: Soup, paths: Paths64, high: Height, low: Height): void => {
-    const rings = toRings(paths);
+  const slab = (soup: Soup, rings: Ring[], high: Height, low: Height): void => {
     if (!rings.length) return;
+    soup.shell();
     const tess = tessellate(rings, terrain);
     surface(soup, tess, high, true);
     surface(soup, tess, low, false);
     walls(soup, tess.edges, high, low);
   };
+  /** Outlines of clipped shapes, made fit to stand walls on. */
+  const sound = (paths: Paths64): Ring[] => toRings(regularize(paths), FINE);
 
   const parts: PrintPart[] = [];
   const emit = (layer: LayerId, soup: Soup): void => {
-    if (soup.data.length) parts.push({ layer, triangles: soup.finish() });
+    if (!soup.data.length) return;
+    if (soup.shells[0] !== 0) soup.shells.unshift(0);
+    parts.push({ layer, triangles: soup.finish(), shells: new Uint32Array(soup.shells) });
   };
 
-  const water = wanted.has("water") ? (sheets.water ?? []) : [];
-  const land = water.length ? (sheets.ground ?? []) : [toPath(ring)];
-
-  // ---- Terrain block ------------------------------------------------------------------------
-  const block = new Soup();
-  const landTess = tessellate(toRings(land), terrain);
-  surface(block, landTess, top, true);
+  // ---- Terrain ------------------------------------------------------------------------------
+  const plate = [toPath(ring)];
+  const rim = [toPath(ring, FINE)];
+  const wet = wanted.has("water") ? (sheets.water ?? []) : [];
+  let shore: Paths64 = [];
+  if (wet.length) {
+    // Water reaching the rim is stretched past it first, so that it still does once its
+    // outline has been regularized.
+    const collar = difference(inflatePolygons(plate, 0.5), plate);
+    shore = regularize(union([...wet, ...intersect(inflatePolygons(wet, 0.1), collar)]));
+  }
+  const water = toRings(intersect(shore, rim), FINE);
+  const recess = water.length ? feature * 2 : 0;
   const bed: Height = (x, y) => top(x, y) - recess;
-  const flat: Height = () => floor;
-  // Rim walls are split at the level of the water bed, so that they meet the banks and the
-  // rim under the water edge to edge wherever a shore reaches the outline.
-  walls(block, landTess.edges, top, bed);
-  walls(block, landTess.edges, bed, flat, onOutline);
-  // The underside reuses the very same triangles as the top, so every seam lines up exactly.
-  surface(block, landTess, flat, false);
+
+  const block = new Soup();
+  slab(block, toRings(rim, FINE), bed, () => floor);
   if (water.length) {
-    const waterTess = tessellate(toRings(water), terrain);
-    surface(block, waterTess, bed, true);
-    walls(block, waterTess.edges, bed, flat, onOutline);
-    surface(block, waterTess, flat, false);
+    // The land stands on the plate, sunk into it by a hair so that the two become one.
+    slab(block, toRings(difference(rim, shore), FINE), top, (x, y) => bed(x, y) - feature * 0.25);
   }
   emit("base", block);
 
   if (water.length) {
     // A thin fill, just below the banks, so that water can be printed in its own colour.
     const fill = new Soup();
-    slab(
-      fill,
-      water,
-      (x, y) => top(x, y) - feature * 0.5,
-      (x, y) => top(x, y) - recess,
-    );
+    slab(fill, water, (x, y) => top(x, y) - feature * 0.5, bed);
     emit("water", fill);
   }
 
@@ -177,29 +183,29 @@ export function buildPrint(state: BuildState, params: PrintParams): { parts: Pri
     if (typical !== undefined) {
       // Widen ribbons that would come out thinner than the nozzle can lay down.
       const grow = (Math.max(feature * 1.25, 0.5) / scale - typical) / 2;
-      if (grow > 0.05) paths = intersect(inflatePolygons(paths, grow, true), [toPath(ring)]);
+      if (grow > 0.05) paths = intersect(inflatePolygons(paths, grow, true), plate);
     }
     const own = difference(paths, above);
     above = union([...above, ...paths]);
     const thickness = feature * (typical !== undefined ? 1.5 : 1);
     const soup = new Soup();
-    slab(soup, difference(own, water), (x, y) => top(x, y) + thickness, top);
+    const roof: Height = (x, y) => top(x, y) + thickness;
+    slab(soup, sound(water.length ? difference(own, wet) : own), roof, top);
     // Bridges and piers go down to the water bed, so nothing is left hanging.
-    if (water.length) {
-      slab(
-        soup,
-        intersect(own, water),
-        (x, y) => top(x, y) + thickness,
-        (x, y) => top(x, y) - recess,
-      );
-    }
+    if (water.length) slab(soup, sound(intersect(own, wet)), roof, bed);
     emit(layer, soup);
   }
 
   // ---- Buildings ----------------------------------------------------------------------------
   if (wanted.has("buildings")) {
     const soup = new Soup();
-    const prism = (polygon: Polygon, low: number, high: number): void => {
+    const prism = (source: Polygon, low: number, high: number): void => {
+      soup.shell();
+      // Caps and walls must use the very same corners: see `straighten`.
+      const polygon: Polygon = {
+        outer: straighten(source.outer, true),
+        holes: source.holes.map((hole) => straighten(hole, true)),
+      };
       const coords = polygon.outer.slice();
       const holes: number[] = [];
       for (const hole of polygon.holes) {
@@ -252,15 +258,38 @@ export function buildPrint(state: BuildState, params: PrintParams): { parts: Pri
         }
       }
     };
+    // A footprint touching itself at a corner (a courtyard reaching the outer wall, say) would
+    // leave an edge shared by four walls: pull such outlines apart first.
+    const corners = new Set<number>();
+    const footprints = (polygon: Polygon): Polygon[] => {
+      corners.clear();
+      let count = 0;
+      for (const edge of [polygon.outer, ...polygon.holes]) {
+        for (let i = 0; i < edge.length; i += 2) {
+          corners.add(Math.round(edge[i]! * 100) * 4194304 + Math.round(edge[i + 1]! * 100));
+          count++;
+        }
+      }
+      if (corners.size === count) return [polygon];
+      return toPolygons(regularize([polygon.outer, ...polygon.holes].map((edge) => toPath(edge))), FINE);
+    };
     for (const solid of state.solids) {
       const ground = solid.ground * vertical;
       // Printed buildings always reach the ground and keep a minimum height.
       const eaves = Math.max(solid.top * vertical, ground + feature * 1.5);
-      prism(solid.polygon, ground - feature, eaves);
+      for (const footprint of footprints(solid.polygon)) prism(footprint, ground - feature, eaves);
       // Each roof facet is a closed wedge standing on the eaves plane.
       for (const piece of solid.roof ?? []) {
+        soup.shell();
         const { ring, z } = piece;
         const n = ring.length / 2;
+        // Height of every corner. A rise of next to nothing is none at all: the faces meeting
+        // at a corner must agree on where it is to the last bit.
+        const rise: number[] = [];
+        for (let i = 0; i < n; i++) {
+          const lift = z[i]! * vertical;
+          rise.push(lift > 1e-4 ? eaves + lift : eaves);
+        }
         const indices = n === 3 ? [0, 1, 2] : earcut(ring);
         for (let i = 0; i < indices.length; i += 3) {
           let a = indices[i]!;
@@ -270,6 +299,8 @@ export function buildPrint(state: BuildState, params: PrintParams): { parts: Pri
             (ring[b * 2]! - ring[a * 2]!) * (ring[c * 2 + 1]! - ring[a * 2 + 1]!) -
             (ring[b * 2 + 1]! - ring[a * 2 + 1]!) * (ring[c * 2]! - ring[a * 2]!);
           if (cross === 0) continue;
+          // A facet lying flat on the eaves would only double the floor under it.
+          if (rise[a] === eaves && rise[b] === eaves && rise[c] === eaves) continue;
           if (cross < 0) [a, b] = [b, a];
           const ax = ring[a * 2]! * scale;
           const ay = ring[a * 2 + 1]! * scale;
@@ -277,17 +308,7 @@ export function buildPrint(state: BuildState, params: PrintParams): { parts: Pri
           const by = ring[b * 2 + 1]! * scale;
           const cx = ring[c * 2]! * scale;
           const cy = ring[c * 2 + 1]! * scale;
-          soup.triangle(
-            ax,
-            ay,
-            eaves + z[a]! * vertical,
-            bx,
-            by,
-            eaves + z[b]! * vertical,
-            cx,
-            cy,
-            eaves + z[c]! * vertical,
-          );
+          soup.triangle(ax, ay, rise[a]!, bx, by, rise[b]!, cx, cy, rise[c]!);
           soup.triangle(bx, by, eaves, ax, ay, eaves, cx, cy, eaves);
         }
         const winding = Math.sign(
@@ -301,14 +322,14 @@ export function buildPrint(state: BuildState, params: PrintParams): { parts: Pri
           // Walk the ring counter-clockwise so that the sides face outwards.
           const from = winding >= 0 ? i : (n - i) % n;
           const to = winding >= 0 ? (i + 1) % n : (n - i - 1 + n) % n;
-          const zFrom = eaves + z[from]! * vertical;
-          const zTo = eaves + z[to]! * vertical;
+          const zFrom = rise[from]!;
+          const zTo = rise[to]!;
           const x0 = ring[from * 2]! * scale;
           const y0 = ring[from * 2 + 1]! * scale;
           const x1 = ring[to * 2]! * scale;
           const y1 = ring[to * 2 + 1]! * scale;
-          if (zFrom - eaves > 1e-6) soup.triangle(x0, y0, zFrom, x0, y0, eaves, x1, y1, eaves);
-          if (zTo - eaves > 1e-6) soup.triangle(x0, y0, zFrom, x1, y1, eaves, x1, y1, zTo);
+          if (zFrom > eaves) soup.triangle(x0, y0, zFrom, x0, y0, eaves, x1, y1, eaves);
+          if (zTo > eaves) soup.triangle(x0, y0, zFrom, x1, y1, eaves, x1, y1, zTo);
         }
       }
     }
@@ -319,8 +340,14 @@ export function buildPrint(state: BuildState, params: PrintParams): { parts: Pri
   if (wanted.has("trees") && state.trees.count) {
     const soup = new Soup();
     const sides = 6;
+    // One table for every cone: neighbouring faces must agree on their corners to the last bit.
+    const circle = Array.from({ length: sides }, (_, s) => {
+      const angle = (s / sides) * Math.PI * 2;
+      return [Math.cos(angle), Math.sin(angle)] as const;
+    });
     const { data, count } = state.trees;
     for (let i = 0; i < count; i++) {
+      soup.shell();
       const o = i * TREE_STRIDE;
       const x = data[o]! * scale;
       const y = -data[o + 2]! * scale;
@@ -328,12 +355,12 @@ export function buildPrint(state: BuildState, params: PrintParams): { parts: Pri
       const tip = base + Math.max(data[o + 3]! * vertical, feature * 3);
       const radius = Math.max(data[o + 4]! * scale, feature * 0.9);
       for (let s = 0; s < sides; s++) {
-        const a0 = (s / sides) * Math.PI * 2;
-        const a1 = ((s + 1) / sides) * Math.PI * 2;
-        const x0 = x + Math.cos(a0) * radius;
-        const y0 = y + Math.sin(a0) * radius;
-        const x1 = x + Math.cos(a1) * radius;
-        const y1 = y + Math.sin(a1) * radius;
+        const from = circle[s]!;
+        const to = circle[(s + 1) % sides]!;
+        const x0 = x + from[0] * radius;
+        const y0 = y + from[1] * radius;
+        const x1 = x + to[0] * radius;
+        const y1 = y + to[1] * radius;
         soup.triangle(x0, y0, base, x1, y1, base, x, y, tip);
         soup.triangle(x1, y1, base, x0, y0, base, x, y, base);
       }

@@ -41,6 +41,11 @@ function payload(): OsmPayload {
       way({ highway: "residential" }, [-260, -60, 260, -60]),
       way({ highway: "footway" }, [-100, -200, -100, 200]),
       way({ natural: "water" }, [-150, 60, -90, 50, -70, 110, -130, 130, -150, 60]),
+      // Shapes sharing nodes with the lake: a wood along one bank, a pond touching one corner,
+      // and a path cutting the wood right down to the water.
+      way({ natural: "wood" }, [-90, 50, -40, 40, -30, 100, -70, 110, -90, 50]),
+      way({ natural: "water" }, [-70, 110, -50, 130, -75, 140, -70, 110]),
+      way({ highway: "path" }, [-35, 70, -80, 80]),
       way({ waterway: "river" }, [-260, 150, 0, 170, 260, 140]),
       way({ leisure: "park" }, box(60, -150, 90, 70)),
       way({ natural: "wood" }, box(-180, -170, 70, 80)),
@@ -64,31 +69,40 @@ function elevation(params: BuildParams): Float32Array {
   return grid;
 }
 
-/** Counts edges that are not shared by exactly two triangles facing opposite ways. */
-function openEdges(part: PrintPart): number {
+/**
+ * Counts the edges of a part that are not shared by exactly two triangles facing opposite ways,
+ * shell by shell and on the exact coordinates: what a strict reader of the file would reject.
+ */
+function brokenEdges(part: PrintPart): number {
   const t = part.triangles;
-  const ids = new Map<string, number>();
-  const id = (i: number) => {
-    // Adding zero turns -0 into 0, so that both print as "0.000".
-    const key = [0, 1, 2].map((k) => (Math.round(t[i + k]! * 1000) / 1000 + 0).toFixed(3)).join(",");
-    let value = ids.get(key);
-    if (value === undefined) ids.set(key, (value = ids.size));
-    return value;
-  };
-  const balance = new Map<string, number>();
-  for (let i = 0; i < t.length; i += 9) {
-    const corners = [id(i), id(i + 3), id(i + 6)];
-    if (corners[0] === corners[1] || corners[1] === corners[2] || corners[0] === corners[2]) continue;
-    for (let k = 0; k < 3; k++) {
-      const a = corners[k]!;
-      const b = corners[(k + 1) % 3]!;
-      const key = a < b ? `${a}-${b}` : `${b}-${a}`;
-      balance.set(key, (balance.get(key) ?? 0) + (a < b ? 1 : -1));
+  const bounds = [...part.shells, t.length / 9];
+  let broken = 0;
+  for (let s = 0; s + 1 < bounds.length; s++) {
+    const ids = new Map<string, number>();
+    const id = (i: number) => {
+      // Adding zero turns -0 into 0.
+      const key = `${t[i]! + 0},${t[i + 1]! + 0},${t[i + 2]! + 0}`;
+      let value = ids.get(key);
+      if (value === undefined) ids.set(key, (value = ids.size));
+      return value;
+    };
+    const uses = new Map<string, [number, number]>();
+    for (let i = bounds[s]! * 9; i < bounds[s + 1]! * 9; i += 9) {
+      const corners = [id(i), id(i + 3), id(i + 6)];
+      if (corners[0] === corners[1] || corners[1] === corners[2] || corners[0] === corners[2]) continue;
+      for (let k = 0; k < 3; k++) {
+        const a = corners[k]!;
+        const b = corners[(k + 1) % 3]!;
+        const key = a < b ? `${a}-${b}` : `${b}-${a}`;
+        const entry = uses.get(key) ?? [0, 0];
+        entry[0]++;
+        entry[1] += a < b ? 1 : -1;
+        uses.set(key, entry);
+      }
     }
+    for (const [count, balance] of uses.values()) if (count !== 2 || balance !== 0) broken++;
   }
-  let open = 0;
-  for (const value of balance.values()) if (value !== 0) open++;
-  return open;
+  return broken;
 }
 
 function volume(part: PrintPart): number {
@@ -162,7 +176,7 @@ for (const shape of ["circle", "square", "hexagon", "rounded"] as const) {
           expect(layers).toContain(layer);
         }
         for (const part of parts) {
-          expect(openEdges(part), `open edges in ${part.layer}`).toBe(0);
+          expect(brokenEdges(part), `broken edges in ${part.layer}`).toBe(0);
           expect(volume(part), `volume of ${part.layer}`).toBeGreaterThan(0);
         }
         const base = parts.find((part) => part.layer === "base")!;

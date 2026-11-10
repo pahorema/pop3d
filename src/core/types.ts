@@ -149,6 +149,12 @@ export interface PrintPart {
   layer: LayerId;
   /** Triangle soup in millimetres, Z up: 9 floats per triangle. */
   triangles: Float32Array;
+  /**
+   * Index of the first triangle of every closed shell in the soup. Shells may touch each other
+   * (two buildings sharing a corner), so writers of indexed formats weld vertices within a shell
+   * only: that keeps each of them a clean two-manifold.
+   */
+  shells: Uint32Array;
 }
 
 export type WorkerRequest =
