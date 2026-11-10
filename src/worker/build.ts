@@ -208,12 +208,14 @@ export function buildDiorama(
   progress(0.28);
 
   // ---- Terrain ----------------------------------------------------------------------------
+  // The padding is deliberately lopsided: with equal margins the middle grid lines would sit
+  // exactly on x = 0 and y = 0, where symmetric outlines have vertices.
   const terrain = new Heightfield(
     n,
     box.minX - GRID_PAD,
     box.minY - GRID_PAD,
-    box.maxX + GRID_PAD,
-    box.maxY + GRID_PAD,
+    box.maxX + GRID_PAD * 1.618,
+    box.maxY + GRID_PAD * 1.382,
   );
   let elevationRange: [number, number] = [0, 0];
   if (relief > 0 && elevation && elevation.length === terrain.heights.length) {
