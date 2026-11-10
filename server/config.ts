@@ -23,8 +23,9 @@ export const config = {
   userAgent: env.POP3D_USER_AGENT ?? `pop3d/${pkg.version}`,
   overpassEndpoints: list(env.POP3D_OVERPASS, [
     "https://overpass-api.de/api/interpreter",
-    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
     "https://overpass.private.coffee/api/interpreter",
+    "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+    "https://overpass.openstreetmap.fr/api/interpreter",
   ]),
   nominatim: env.POP3D_NOMINATIM ?? "https://nominatim.openstreetmap.org",
   photon: env.POP3D_PHOTON ?? "https://photon.komoot.io",

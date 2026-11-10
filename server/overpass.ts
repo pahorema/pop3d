@@ -12,7 +12,7 @@ import { type BBox, HttpError, upstream } from "./http";
 
 const DAY = 86_400_000;
 /** How long we wait for one mirror before also asking the next one. */
-const HEDGE_DELAY_MS = 7000;
+const HEDGE_DELAY_MS = 2500;
 const ATTEMPT_TIMEOUT_MS = 80_000;
 const MAX_CONCURRENT = 3;
 
