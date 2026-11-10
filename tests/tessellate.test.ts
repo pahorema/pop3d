@@ -19,10 +19,37 @@ function meshArea(tess: Tessellation): number {
       ((tess.xy[b]! - tess.xy[a]!) * (tess.xy[c + 1]! - tess.xy[a + 1]!) -
         (tess.xy[b + 1]! - tess.xy[a + 1]!) * (tess.xy[c]! - tess.xy[a]!)) /
       2;
-    expect(area).toBeGreaterThan(0);
+    // Slivers with no area are fine (they keep neighbouring triangles joined), inverted ones are not.
+    expect(area).toBeGreaterThanOrEqual(0);
     total += area;
   }
   return total;
+}
+
+/**
+ * Counts the edges along which the triangles fail to meet: every edge must be shared by two
+ * triangles running opposite ways, or lie on the outline (which has the surface on its left).
+ */
+function seams(tess: Tessellation): number {
+  const ids = new Map<string, number>();
+  for (let i = 0; i < tess.xy.length; i += 2) ids.set(`${tess.xy[i]},${tess.xy[i + 1]}`, i / 2);
+  const net = new Map<string, number>();
+  const add = (a: number, b: number, weight: number) => {
+    const key = a < b ? `${a}-${b}` : `${b}-${a}`;
+    net.set(key, (net.get(key) ?? 0) + (a < b ? weight : -weight));
+  };
+  for (let i = 0; i < tess.triangles.length; i += 3) {
+    for (let k = 0; k < 3; k++) add(tess.triangles[i + k]!, tess.triangles[i + ((k + 1) % 3)]!, 1);
+  }
+  for (let i = 0; i < tess.edges.length; i += 4) {
+    const a = ids.get(`${tess.edges[i]},${tess.edges[i + 1]}`);
+    const b = ids.get(`${tess.edges[i + 2]},${tess.edges[i + 3]}`);
+    if (a === undefined || b === undefined) return Number.POSITIVE_INFINITY;
+    add(a, b, -1);
+  }
+  let count = 0;
+  for (const value of net.values()) if (value !== 0) count++;
+  return count;
 }
 
 function outlineLength(tess: Tessellation): number {
@@ -143,7 +170,50 @@ describe("tessellate", () => {
         const tess = tessellate(rings, grid(-50.0037, 50.0037, cells));
         expect(Math.abs(meshArea(tess) - expected)).toBeLessThan(1e-3);
         expect(Math.abs(outlineLength(tess) - perimeter(rings))).toBeLessThan(1e-3);
+        expect(seams(tess)).toBe(0);
       }
     }
+  });
+
+  test("stays closed where an outline brushes against itself", () => {
+    // A notch cut right down to the opposite edge, overshooting it by a centimetre: the kind of
+    // hairline overlap clipping leaves behind. The two edges swap sides exactly at a grid line.
+    const ring: Ring = [-20, -10, 20, -10, 20, 10, 4, 10, 3, -9.99, -3, -10.012, -4, 10, -20, 10];
+    for (const cells of [2, 16, 41]) {
+      const tess = tessellate([ring], grid(-50.0037, 50.0037, cells));
+      expect(seams(tess)).toBe(0);
+      // Both lobes are there and nothing spills into the notch.
+      let area = 0;
+      for (let i = 0; i < tess.triangles.length; i += 3) {
+        const a = tess.triangles[i]! * 2;
+        const b = tess.triangles[i + 1]! * 2;
+        const c = tess.triangles[i + 2]! * 2;
+        area +=
+          Math.abs(
+            (tess.xy[b]! - tess.xy[a]!) * (tess.xy[c + 1]! - tess.xy[a + 1]!) -
+              (tess.xy[b + 1]! - tess.xy[a + 1]!) * (tess.xy[c]! - tess.xy[a]!),
+          ) / 2;
+      }
+      expect(area).toBeGreaterThan(660);
+      expect(area).toBeLessThan(661);
+    }
+  });
+
+  test("cuts an edge at the same points whichever way it is walked", () => {
+    const land: Ring = [-30, -30, 7.3, -30, 11.9, 30, -30, 30];
+    const water: Ring = [7.3, -30, 30, -30, 30, 30, 11.9, 30];
+    const g2 = grid(-50.0037, 50.0037, 23);
+    const shore = (tess: Tessellation) => {
+      const points = new Set<string>();
+      for (let i = 0; i < tess.edges.length; i += 2) {
+        const x = tess.edges[i]!;
+        const y = tess.edges[i + 1]!;
+        if (x > 7 && x < 12 && Math.abs(y) < 30) points.add(`${x},${y}`);
+      }
+      return [...points].sort();
+    };
+    const cuts = shore(tessellate([land], g2));
+    expect(cuts.length).toBeGreaterThan(12);
+    expect(shore(tessellate([water], g2))).toEqual(cuts);
   });
 });
