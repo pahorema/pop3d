@@ -91,7 +91,7 @@ export const THEMES: Theme[] = [
     light: NATURAL_LIGHT,
     surface: { roughness: 0.92, waterRoughness: 0.12, waterMetalness: 0.1 },
     ao: { intensity: 2.6, color: "#3a2f28" },
-    shadow: { color: "#4a3f35", opacity: 0.3 },
+    shadow: { color: "#4a3f35", opacity: 0.4 },
   },
   {
     id: "plastico",
@@ -121,7 +121,7 @@ export const THEMES: Theme[] = [
     light: { ...NATURAL_LIGHT, sun: "#fff6ea", sunIntensity: 2.6, skyIntensity: 1.1, environment: 0.24 },
     surface: { roughness: 0.96, waterRoughness: 0.2, waterMetalness: 0 },
     ao: { intensity: 3.2, color: "#2e2b28" },
-    shadow: { color: "#3c3936", opacity: 0.28 },
+    shadow: { color: "#3c3936", opacity: 0.36 },
   },
   {
     id: "mediterraneo",
@@ -151,7 +151,7 @@ export const THEMES: Theme[] = [
     light: { ...NATURAL_LIGHT, sun: "#ffe9c7", sunIntensity: 3, bounce: "#e0c59a" },
     surface: { roughness: 0.9, waterRoughness: 0.08, waterMetalness: 0.15 },
     ao: { intensity: 2.6, color: "#4a2c1c" },
-    shadow: { color: "#5a3a22", opacity: 0.32 },
+    shadow: { color: "#5a3a22", opacity: 0.4 },
   },
   {
     id: "carta",
@@ -181,7 +181,7 @@ export const THEMES: Theme[] = [
     light: { ...NATURAL_LIGHT, sunIntensity: 2.5, skyIntensity: 1.25 },
     surface: { roughness: 1, waterRoughness: 0.6, waterMetalness: 0 },
     ao: { intensity: 2.2, color: "#4d3a2e" },
-    shadow: { color: "#57463a", opacity: 0.26 },
+    shadow: { color: "#57463a", opacity: 0.34 },
   },
   {
     id: "menta",
@@ -211,7 +211,7 @@ export const THEMES: Theme[] = [
     light: { ...NATURAL_LIGHT, sun: "#fff4f0", sky: "#f3ecff", bounce: "#ffd9e0" },
     surface: { roughness: 0.85, waterRoughness: 0.1, waterMetalness: 0.05 },
     ao: { intensity: 2.2, color: "#6b3f58" },
-    shadow: { color: "#8a5672", opacity: 0.24 },
+    shadow: { color: "#8a5672", opacity: 0.3 },
   },
   {
     id: "grafite",

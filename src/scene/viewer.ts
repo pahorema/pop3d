@@ -299,7 +299,12 @@ export class Viewer {
 
   /** Distance at which the whole model fits the free part of the viewport. */
   private fitDistance(): number {
-    const radius = this.diorama?.radius ?? 100;
+    // Mountains make the model taller than it is wide: frame its whole bulk, not just the plinth.
+    const data = this.diorama?.data;
+    const radius = Math.hypot(
+      this.diorama?.radius ?? 100,
+      data ? (data.groundTopY - data.bottomY) * 0.45 : 0,
+    );
     const freeWidth = Math.max(200, this.width - this.insets.left - this.insets.right);
     const freeHeight = Math.max(200, this.height - this.insets.top - this.insets.bottom);
     const vertical = THREE.MathUtils.degToRad(this.camera.fov) / 2;
@@ -311,7 +316,9 @@ export class Viewer {
   }
 
   private homeTarget(): THREE.Vector3 {
-    return new THREE.Vector3(0, (this.diorama?.data.groundTopY ?? 0) * 0.35, 0);
+    // Aim a little below the surface, towards the visual middle of plinth and relief together.
+    const data = this.diorama?.data;
+    return new THREE.Vector3(0, data ? data.groundTopY * 0.14 + data.bottomY * 0.3 : 0, 0);
   }
 
   private presetPose(preset: ViewPreset): { target: THREE.Vector3; spherical: THREE.Spherical } {
