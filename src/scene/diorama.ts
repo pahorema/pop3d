@@ -38,6 +38,93 @@ function hash(index: number, salt: number): number {
   return ((h ^ (h >>> 15)) >>> 0) / 4294967296;
 }
 
+export interface ExportMesh {
+  name: string;
+  geometry: THREE.BufferGeometry;
+  /** Flat colour, or `null` when the geometry carries per-vertex colours. */
+  color: string | null;
+  roughness: number;
+  metalness: number;
+}
+
+/** Expands an instanced mesh into a regular one, with instance colours as vertex colours. */
+function bakeInstances(mesh: THREE.InstancedMesh): THREE.BufferGeometry | null {
+  const source = mesh.geometry;
+  const position = source.getAttribute("position");
+  const normal = source.getAttribute("normal");
+  const sourceIndex = source.getIndex();
+  const count = mesh.count;
+  if (!count) return null;
+  const vertexCount = position.count;
+  const indexCount = sourceIndex ? sourceIndex.count : vertexCount;
+  const positions = new Float32Array(count * vertexCount * 3);
+  const normals = new Float32Array(count * vertexCount * 3);
+  const colors = new Float32Array(count * vertexCount * 3);
+  const indices = new Uint32Array(count * indexCount);
+  const matrix = new THREE.Matrix4();
+  const normalMatrix = new THREE.Matrix3();
+  const point = new THREE.Vector3();
+  const color = new THREE.Color();
+  for (let i = 0; i < count; i++) {
+    mesh.getMatrixAt(i, matrix);
+    normalMatrix.getNormalMatrix(matrix);
+    if (mesh.instanceColor) mesh.getColorAt(i, color);
+    else color.set("#ffffff");
+    const base = i * vertexCount;
+    for (let v = 0; v < vertexCount; v++) {
+      const o = (base + v) * 3;
+      point.fromBufferAttribute(position, v).applyMatrix4(matrix);
+      positions[o] = point.x;
+      positions[o + 1] = point.y;
+      positions[o + 2] = point.z;
+      point.fromBufferAttribute(normal, v).applyMatrix3(normalMatrix).normalize();
+      normals[o] = point.x;
+      normals[o + 1] = point.y;
+      normals[o + 2] = point.z;
+      colors[o] = color.r;
+      colors[o + 1] = color.g;
+      colors[o + 2] = color.b;
+    }
+    for (let k = 0; k < indexCount; k++) {
+      indices[i * indexCount + k] = base + (sourceIndex ? sourceIndex.getX(k) : k);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.BufferAttribute(positions, 3));
+  geometry.setAttribute("normal", new THREE.BufferAttribute(normals, 3));
+  geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+  geometry.setIndex(new THREE.BufferAttribute(indices, 1));
+  return geometry;
+}
+
+function mergeBaked(meshes: (THREE.InstancedMesh | null)[]): THREE.BufferGeometry | null {
+  const baked = meshes.map((mesh) => (mesh ? bakeInstances(mesh) : null)).filter((g) => g !== null);
+  if (!baked.length) return null;
+  if (baked.length === 1) return baked[0]!;
+  const merged = new THREE.BufferGeometry();
+  for (const name of ["position", "normal", "color"]) {
+    const arrays = baked.map((g) => g.getAttribute(name).array as Float32Array);
+    const joined = new Float32Array(arrays.reduce((sum, a) => sum + a.length, 0));
+    let offset = 0;
+    for (const array of arrays) {
+      joined.set(array, offset);
+      offset += array.length;
+    }
+    merged.setAttribute(name, new THREE.BufferAttribute(joined, 3));
+  }
+  const indices = new Uint32Array(baked.reduce((sum, g) => sum + g.getIndex()!.count, 0));
+  let offset = 0;
+  let base = 0;
+  for (const geometry of baked) {
+    const index = geometry.getIndex()!.array;
+    for (let i = 0; i < index.length; i++) indices[offset + i] = index[i]! + base;
+    offset += index.length;
+    base += geometry.getAttribute("position").count;
+  }
+  merged.setIndex(new THREE.BufferAttribute(indices, 1));
+  return merged;
+}
+
 function geometryOf(mesh: MeshData): THREE.BufferGeometry {
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.BufferAttribute(mesh.positions, 3));
@@ -480,6 +567,48 @@ export class Diorama {
   setGrowth(t: number): void {
     this.grow.uGrow.value = t;
     this.root.scale.y = 0.02 + 0.98 * (1 - (1 - Math.min(1, t * 2.2)) ** 3);
+  }
+
+  // ---- Export -----------------------------------------------------------------------------
+
+  /**
+   * Plain meshes of everything currently visible, ready for an exporter: no custom shaders,
+   * trees baked into ordinary geometry, hidden buildings left out.
+   */
+  exportMeshes(): ExportMesh[] {
+    const out: ExportMesh[] = [];
+    const { theme } = this.style;
+    for (const [layer, object] of this.objects) {
+      if (!object.visible) continue;
+      if (layer === "trees") {
+        const trunks = this.trunks ? bakeInstances(this.trunks) : null;
+        if (trunks)
+          out.push({ name: "trees-trunks", geometry: trunks, color: null, roughness: 1, metalness: 0 });
+        const crowns = mergeBaked([this.crowns, this.conifers]);
+        if (crowns)
+          out.push({ name: "trees-crowns", geometry: crowns, color: null, roughness: 1, metalness: 0 });
+        continue;
+      }
+      const mesh = object as THREE.Mesh;
+      const geometry = new THREE.BufferGeometry();
+      geometry.setAttribute("position", mesh.geometry.getAttribute("position"));
+      geometry.setAttribute("normal", mesh.geometry.getAttribute("normal"));
+      geometry.setIndex(mesh.geometry.getIndex());
+      if (layer === "buildings") {
+        geometry.setAttribute("color", mesh.geometry.getAttribute("color"));
+        out.push({ name: layer, geometry, color: null, roughness: theme.surface.roughness, metalness: 0 });
+      } else {
+        const water = layer === "water";
+        out.push({
+          name: layer,
+          geometry,
+          color: theme.layers[layer as keyof Theme["layers"]],
+          roughness: water ? theme.surface.waterRoughness : theme.surface.roughness,
+          metalness: water ? theme.surface.waterMetalness : 0,
+        });
+      }
+    }
+    return out;
   }
 
   dispose(): void {
