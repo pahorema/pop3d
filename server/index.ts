@@ -1,10 +1,12 @@
 import { join, normalize, sep } from "node:path";
 import type { Server } from "bun";
+import { docsPage, openApiDocument } from "./api-docs";
 import { DiskCache } from "./cache";
 import { config } from "./config";
 import { elevationGrid } from "./dem";
 import { reverse, search, suggest } from "./geocode";
 import { bboxParam, errorResponse, HttpError, json, numberParam, RateLimiter } from "./http";
+import { modelResponse } from "./model";
 import { osmExtract } from "./overpass";
 
 const cache = new DiskCache(config.cacheDir, config.cacheMaxBytes);
@@ -13,6 +15,7 @@ const limits = {
   geocode: new RateLimiter(40, 1),
   osm: new RateLimiter(20, 0.25),
   dem: new RateLimiter(30, 0.5),
+  model: new RateLimiter(12, 0.2),
 };
 
 const SECURITY_HEADERS: Record<string, string> = {
@@ -55,6 +58,25 @@ function guard(limiter: RateLimiter, key: string): void {
   if (!limiter.take(key)) throw new HttpError(429, "Too many requests, slow down a little", "rate_limited");
 }
 
+/** Public address of the server as the client sees it, also behind a reverse proxy. */
+function publicOrigin(url: URL, request: Request): string {
+  const protocol =
+    request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim() ?? url.protocol.replace(":", "");
+  const host = request.headers.get("x-forwarded-host")?.split(",")[0]?.trim() ?? url.host;
+  return `${protocol}://${host}`;
+}
+
+/** Lets other sites call the API from the browser, when enabled. */
+function withCors(response: Response): Response {
+  if (!config.cors) return response;
+  response.headers.set("access-control-allow-origin", config.cors);
+  response.headers.set(
+    "access-control-expose-headers",
+    "content-disposition, x-cache, x-pop3d-center, x-pop3d-place, x-pop3d-triangles, x-pop3d-print-scale, x-pop3d-attribution",
+  );
+  return response;
+}
+
 function acceptsGzip(request: Request): boolean {
   return /\bgzip\b/.test(request.headers.get("accept-encoding") ?? "");
 }
@@ -62,8 +84,27 @@ function acceptsGzip(request: Request): boolean {
 async function api(url: URL, request: Request, server: Server<unknown>): Promise<Response> {
   const who = clientKey(request, server);
   switch (url.pathname) {
+    case "/api":
+    case "/api/":
+    case "/api/docs":
+      return new Response(docsPage(publicOrigin(url, request)), {
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          "cache-control": "public, max-age=300",
+          "content-security-policy": CONTENT_SECURITY_POLICY,
+          ...SECURITY_HEADERS,
+        },
+      });
+
+    case "/api/openapi.json":
+      return json(openApiDocument(publicOrigin(url, request)), { maxAge: 300 });
+
     case "/api/health":
       return json({ ok: true, version: config.version });
+
+    case "/api/model":
+      guard(limits.model, who);
+      return await modelResponse(cache, url);
 
     case "/api/suggest": {
       guard(limits.geocode, who);
@@ -200,15 +241,28 @@ export function startServer(): Server<unknown> {
     idleTimeout: 120,
     async fetch(request, server) {
       const url = new URL(request.url);
+      const isApi = url.pathname === "/api" || url.pathname.startsWith("/api/");
       try {
+        if (isApi && request.method === "OPTIONS") {
+          return withCors(
+            new Response(null, {
+              status: 204,
+              headers: {
+                "access-control-allow-methods": "GET, HEAD, OPTIONS",
+                "access-control-max-age": "86400",
+              },
+            }),
+          );
+        }
         if (request.method !== "GET" && request.method !== "HEAD") {
           throw new HttpError(405, "Method not allowed", "method_not_allowed");
         }
-        if (url.pathname.startsWith("/api/")) return await api(url, request, server);
+        if (isApi) return withCors(await api(url, request, server));
         if (config.dev && url.pathname === "/__dev/reload") return devReloadStream();
         return await serveStatic(url, request);
       } catch (error) {
-        return errorResponse(error);
+        const response = errorResponse(error);
+        return isApi ? withCors(response) : response;
       }
     },
   });

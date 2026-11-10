@@ -30,6 +30,8 @@ export const config = {
   nominatim: env.POP3D_NOMINATIM ?? "https://nominatim.openstreetmap.org",
   photon: env.POP3D_PHOTON ?? "https://photon.komoot.io",
   demTiles: env.POP3D_DEM_TILES ?? "https://s3.amazonaws.com/elevation-tiles-prod/terrarium/{z}/{x}/{y}.png",
+  /** Value of Access-Control-Allow-Origin for the API; an empty string keeps it same-origin. */
+  cors: env.POP3D_CORS ?? "*",
   /** Largest side of a requested area, in metres. */
   maxSpan: Number(env.POP3D_MAX_SPAN ?? 6500),
 } as const;
