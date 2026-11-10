@@ -1,0 +1,30 @@
+[Unit]
+Description=pop3d - il mondo in miniatura
+Documentation=https://github.com/pahorema/pop3d
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pop3d
+Group=pop3d
+WorkingDirectory=/opt/pop3d
+Environment=NODE_ENV=production
+Environment=PORT=3000
+Environment=HOME=/var/lib/pop3d
+Environment=POP3D_CACHE_DIR=/var/lib/pop3d/cache
+ExecStart=/usr/local/bin/bun run server/index.ts
+Restart=always
+RestartSec=3
+
+# The disk cache is the only thing the service writes.
+ReadWritePaths=/var/lib/pop3d
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+NoNewPrivileges=true
+MemoryMax=1500M
+
+[Install]
+WantedBy=multi-user.target
