@@ -1248,6 +1248,17 @@ button {
   gap: 6px;
 }
 
+.api-link {
+  display: block;
+  padding: 9px 11px;
+  border-radius: var(--radius-s);
+  background: var(--sunken);
+  font: 500 11.5px / 1.5 var(--font-mono);
+  color: var(--ink-soft);
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+
 /* ---- Caption -------------------------------------------------------------------------- */
 
 .caption {

@@ -1,3 +1,4 @@
+import { type ModelFormat, modelQuery } from "../../../shared/model-api";
 import { formatNumber, type MessageKey, t } from "../../core/i18n";
 import type { Store } from "../../core/store";
 import type { DioramaData, LayerId, PrintParams } from "../../core/types";
@@ -6,6 +7,7 @@ import { h } from "../dom";
 
 export interface ExportActions {
   data(): DioramaData | null;
+  notify(message: string): void;
   image(scale: number, transparent: boolean): void;
   model(format: "glb" | "obj"): void;
   print(format: "stl" | "3mf", params: PrintParams): void;
@@ -167,7 +169,108 @@ export function createExportSection(store: Store, actions: ExportActions): HTMLE
       h("p", { class: "hint" }, `${t("export.print.stl")}  ·  ${t("export.print.3mf")}`),
     ),
   );
+  // The API link reproduces whatever is on screen: place, area, style, hidden layers, print setup.
+  let apiFormat: ModelFormat = "glb";
+  const apiLink = h("code", { class: "api-link" });
+  const apiUrl = (): string => {
+    const current = store.state;
+    const area = actions.data()?.params.area ?? current.area;
+    const printing = apiFormat === "stl" || apiFormat === "3mf";
+    const query = modelQuery({
+      lat: area.lat,
+      lon: area.lon,
+      shape: area.shape,
+      width: area.width,
+      depth: area.depth,
+      detail: current.detail,
+      relief: current.relief,
+      roofs: current.roofs,
+      theme: current.theme,
+      colors: current.colors,
+      buildings: current.buildingColors,
+      hide: current.solo ? [] : current.hidden,
+      layers: printing
+        ? print.layers.filter((layer) => layer !== "base")
+        : current.solo
+          ? [current.solo, "base"]
+          : null,
+      ...(printing
+        ? {
+            printSize: print.sizeMm,
+            printBase: print.baseMm,
+            printZScale: print.zScale,
+            printFeature: print.minFeatureMm,
+          }
+        : {}),
+      lang: current.lang,
+      format: apiFormat,
+    });
+    return `${location.origin}/api/model?${query}`;
+  };
+  const updateApi = (): void => {
+    apiLink.textContent = apiUrl().replace(location.origin, "");
+  };
+  element.append(
+    section(
+      t("export.api"),
+      h("p", { class: "hint" }, t("export.api.hint")),
+      segmented<ModelFormat>(
+        t("export.api"),
+        [
+          { value: "glb", label: "GLB" },
+          { value: "obj", label: "OBJ" },
+          { value: "stl", label: "STL" },
+          { value: "3mf", label: "3MF" },
+          { value: "json", label: "JSON" },
+        ],
+        apiFormat,
+        (value) => {
+          apiFormat = value;
+          updateApi();
+        },
+      ).element,
+      apiLink,
+      h(
+        "div",
+        { class: "button-row" },
+        button(
+          t("export.api.copy"),
+          () => {
+            updateApi();
+            void navigator.clipboard?.writeText(apiUrl()).then(
+              () => actions.notify(t("export.api.copied")),
+              () => actions.notify(apiUrl()),
+            );
+          },
+          { icon: "link" },
+        ),
+        h(
+          "a",
+          { class: "button button-ghost", href: "/api", target: "_blank", rel: "noopener" },
+          h("span", { class: "button-label" }, t("export.api.docs")),
+        ),
+      ),
+    ),
+  );
+  element.addEventListener("pointerenter", updateApi);
+  updateApi();
   updateFacts();
   store.on(["revision", "area"], updateFacts);
+  store.on(
+    [
+      "revision",
+      "area",
+      "detail",
+      "relief",
+      "roofs",
+      "theme",
+      "colors",
+      "buildingColors",
+      "hidden",
+      "solo",
+      "lang",
+    ],
+    updateApi,
+  );
   return element;
 }

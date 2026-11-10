@@ -17,7 +17,7 @@ import { writeObj } from "./export/obj";
 import { write3mf, writeStl } from "./export/print";
 import { formatCoordinates } from "./geo/coords";
 import { Diorama, type DioramaStyle } from "./scene/diorama";
-import { type ColorKey, resolveTheme, themeColor } from "./scene/themes";
+import { LAYER_COLOR_KEY, resolveTheme, themeColor } from "./scene/themes";
 import { Viewer } from "./scene/viewer";
 import {
   type Caption,
@@ -38,26 +38,6 @@ import { createExportSection } from "./ui/sections/export";
 import { createLayersSection } from "./ui/sections/layers";
 import { createLightSection } from "./ui/sections/light";
 import { createStyleSection } from "./ui/sections/style";
-
-const PRINT_COLOR: Record<LayerId, ColorKey> = {
-  base: "ground",
-  ground: "ground",
-  urban: "urban",
-  farmland: "farmland",
-  sand: "sand",
-  rock: "rock",
-  ice: "ice",
-  green: "green",
-  forest: "forest",
-  water: "water",
-  sport: "sport",
-  paved: "paved",
-  paths: "paths",
-  roads: "roads",
-  rail: "rail",
-  buildings: "walls",
-  trees: "trees",
-};
 
 function slugify(text: string): string {
   const slug = text
@@ -172,6 +152,7 @@ export class App {
       export: () =>
         createExportSection(store, {
           data: () => this.diorama?.data ?? null,
+          notify: (message) => this.status.toast(message),
           image: (scale, transparent) => void this.exportImage(scale, transparent),
           model: (format) => void this.exportModel(format),
           print: (format, params) => void this.exportPrint(format, params),
@@ -245,7 +226,7 @@ export class App {
   private visibility(): Record<LayerId, boolean> {
     const hidden = new Set(this.store.state.hidden);
     const out = {} as Record<LayerId, boolean>;
-    for (const layer of Object.keys(PRINT_COLOR) as LayerId[]) out[layer] = !hidden.has(layer);
+    for (const layer of Object.keys(LAYER_COLOR_KEY) as LayerId[]) out[layer] = !hidden.has(layer);
     return out;
   }
 
@@ -416,8 +397,8 @@ export class App {
 
   private bindKeyboard(): void {
     window.addEventListener("keydown", (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement;
-      if (target.matches("input, textarea, select") || event.metaKey || event.ctrlKey || event.altKey) return;
+      const typing = event.target instanceof Element && event.target.matches("input, textarea, select");
+      if (typing || event.metaKey || event.ctrlKey || event.altKey) return;
       const { store, viewer } = this;
       const panels = ["area", "style", "layers", "light", "export"] as const;
       switch (event.key) {
@@ -535,8 +516,8 @@ export class App {
       const theme = this.style().theme;
       const colors = {} as Record<LayerId, string>;
       const names = {} as Record<LayerId, string>;
-      for (const layer of Object.keys(PRINT_COLOR) as LayerId[]) {
-        colors[layer] = themeColor(theme, PRINT_COLOR[layer]);
+      for (const layer of Object.keys(LAYER_COLOR_KEY) as LayerId[]) {
+        colors[layer] = themeColor(theme, LAYER_COLOR_KEY[layer]);
         names[layer] = t(`layer.${layer}` as MessageKey);
       }
       return {
