@@ -11,6 +11,9 @@ import {
   writeUrl,
 } from "./core/store";
 import type { BuildParams, DioramaData, LayerId, PrintParams } from "./core/types";
+import { writeGlb } from "./export/glb";
+import { MODEL_COPYRIGHT } from "./export/mesh";
+import { writeObj } from "./export/obj";
 import { write3mf, writeStl } from "./export/print";
 import { formatCoordinates } from "./geo/coords";
 import { Diorama, type DioramaStyle } from "./scene/diorama";
@@ -496,14 +499,29 @@ export class App {
 
   private exportModel(format: "glb" | "obj"): Promise<void> {
     return this.exporting(async () => {
-      const { writeGlb, writeObj } = await import("./export/model");
       const meshes = this.diorama!.exportMeshes();
       const title = this.store.state.place?.name ?? "pop3d";
       const slug = this.fileName();
-      return format === "glb"
-        ? { blob: await writeGlb(meshes, title), name: `${slug}.glb` }
-        : { blob: writeObj(meshes, slug, title), name: `${slug}-obj.zip` };
+      if (format === "obj") {
+        return {
+          blob: new Blob([writeObj(meshes, slug, title)], { type: "application/zip" }),
+          name: `${slug}-obj.zip`,
+        };
+      }
+      const glb = writeGlb(meshes, { title, copyright: MODEL_COPYRIGHT, extras: this.modelExtras() });
+      return { blob: new Blob([glb], { type: "model/gltf-binary" }), name: `${slug}.glb` };
     });
+  }
+
+  private modelExtras(): Record<string, unknown> {
+    const { area } = this.diorama!.data.params;
+    return {
+      latitude: area.lat,
+      longitude: area.lon,
+      width: area.width,
+      depth: area.depth,
+      shape: area.shape,
+    };
   }
 
   private exportPrint(format: "stl" | "3mf", params: PrintParams): Promise<void> {
@@ -511,7 +529,9 @@ export class App {
       const { parts } = await this.engine.print(params);
       const title = this.store.state.place?.name ?? "pop3d";
       const slug = this.fileName();
-      if (format === "stl") return { blob: writeStl(parts, title), name: `${slug}.stl` };
+      if (format === "stl") {
+        return { blob: new Blob([writeStl(parts, title)], { type: "model/stl" }), name: `${slug}.stl` };
+      }
       const theme = this.style().theme;
       const colors = {} as Record<LayerId, string>;
       const names = {} as Record<LayerId, string>;
@@ -519,7 +539,10 @@ export class App {
         colors[layer] = themeColor(theme, PRINT_COLOR[layer]);
         names[layer] = t(`layer.${layer}` as MessageKey);
       }
-      return { blob: write3mf(parts, colors, names, title), name: `${slug}.3mf` };
+      return {
+        blob: new Blob([write3mf(parts, colors, names, title)], { type: "model/3mf" }),
+        name: `${slug}.3mf`,
+      };
     });
   }
 

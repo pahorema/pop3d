@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { type DioramaData, LAYERS, type LayerId, type MeshData, TREE_STRIDE } from "../core/types";
+import type { ExportMesh } from "../export/mesh";
 import type { Theme } from "./themes";
 
 export type BuildingColorMode = "theme" | "height" | "kind";
@@ -36,15 +37,6 @@ function hash(index: number, salt: number): number {
   h = Math.imul(h ^ (h >>> 15), 0x2c1b3c6d);
   h = Math.imul(h ^ (h >>> 12), 0x297a2d39);
   return ((h ^ (h >>> 15)) >>> 0) / 4294967296;
-}
-
-export interface ExportMesh {
-  name: string;
-  geometry: THREE.BufferGeometry;
-  /** Flat colour, or `null` when the geometry carries per-vertex colours. */
-  color: string | null;
-  roughness: number;
-  metalness: number;
 }
 
 /** Expands an instanced mesh into a regular one, with instance colours as vertex colours. */
@@ -578,30 +570,47 @@ export class Diorama {
   exportMeshes(): ExportMesh[] {
     const out: ExportMesh[] = [];
     const { theme } = this.style;
+    const arrays = (geometry: THREE.BufferGeometry) => ({
+      positions: geometry.getAttribute("position").array as Float32Array,
+      normals: geometry.getAttribute("normal").array as Float32Array,
+      indices: geometry.getIndex()!.array as Uint32Array,
+    });
     for (const [layer, object] of this.objects) {
       if (!object.visible) continue;
       if (layer === "trees") {
         const trunks = this.trunks ? bakeInstances(this.trunks) : null;
-        if (trunks)
-          out.push({ name: "trees-trunks", geometry: trunks, color: null, roughness: 1, metalness: 0 });
         const crowns = mergeBaked([this.crowns, this.conifers]);
-        if (crowns)
-          out.push({ name: "trees-crowns", geometry: crowns, color: null, roughness: 1, metalness: 0 });
+        for (const [name, geometry] of [
+          ["trees-trunks", trunks],
+          ["trees-crowns", crowns],
+        ] as const) {
+          if (!geometry) continue;
+          out.push({
+            name,
+            ...arrays(geometry),
+            colors: geometry.getAttribute("color").array as Float32Array,
+            color: null,
+            roughness: 1,
+            metalness: 0,
+          });
+        }
         continue;
       }
-      const mesh = object as THREE.Mesh;
-      const geometry = new THREE.BufferGeometry();
-      geometry.setAttribute("position", mesh.geometry.getAttribute("position"));
-      geometry.setAttribute("normal", mesh.geometry.getAttribute("normal"));
-      geometry.setIndex(mesh.geometry.getIndex());
+      const { geometry } = object as THREE.Mesh;
       if (layer === "buildings") {
-        geometry.setAttribute("color", mesh.geometry.getAttribute("color"));
-        out.push({ name: layer, geometry, color: null, roughness: theme.surface.roughness, metalness: 0 });
+        out.push({
+          name: layer,
+          ...arrays(geometry),
+          colors: geometry.getAttribute("color").array as Float32Array,
+          color: null,
+          roughness: theme.surface.roughness,
+          metalness: 0,
+        });
       } else {
         const water = layer === "water";
         out.push({
           name: layer,
-          geometry,
+          ...arrays(geometry),
           color: theme.layers[layer as keyof Theme["layers"]],
           roughness: water ? theme.surface.waterRoughness : theme.surface.roughness,
           metalness: water ? theme.surface.waterMetalness : 0,

@@ -1,8 +1,9 @@
 import { strToU8, zipSync } from "fflate";
 import type { LayerId, PrintPart } from "../core/types";
+import type { Bytes } from "./mesh";
 
 /** Binary STL holding every part as one triangle soup. */
-export function writeStl(parts: PrintPart[], title: string): Blob {
+export function writeStl(parts: PrintPart[], title: string): Bytes {
   let count = 0;
   for (const part of parts) count += part.triangles.length / 9;
   const buffer = new ArrayBuffer(84 + count * 50);
@@ -34,7 +35,7 @@ export function writeStl(parts: PrintPart[], title: string): Blob {
       offset += 50;
     }
   }
-  return new Blob([buffer], { type: "model/stl" });
+  return new Uint8Array(buffer);
 }
 
 /** Millimetres with three decimals; adding zero keeps "-0.000" from splitting welded corners. */
@@ -51,7 +52,7 @@ export function write3mf(
   colors: Record<LayerId, string>,
   names: Record<LayerId, string>,
   title: string,
-): Blob {
+): Bytes {
   const chunks: string[] = [];
   chunks.push(
     '<?xml version="1.0" encoding="UTF-8"?>\n',
@@ -122,5 +123,5 @@ export function write3mf(
     },
     { level: 6 },
   );
-  return new Blob([archive.buffer as ArrayBuffer], { type: "model/3mf" });
+  return archive as Bytes;
 }
