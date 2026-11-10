@@ -232,7 +232,7 @@ export const ENDPOINTS: Endpoint[] = [
             name: "format",
             type: "string",
             description:
-              "<code>glb</code> binary glTF with colours; <code>obj</code> a zip with OBJ and MTL; <code>stl</code> one watertight solid; <code>3mf</code> watertight parts, one colour each; <code>json</code> a description of the model with links to every format.",
+              "<code>glb</code> binary glTF with colours; <code>obj</code> a zip with OBJ and MTL; <code>stl</code> one watertight solid; <code>3mf</code> watertight parts, one object and one colour each (Bambu Studio and OrcaSlicer map them to filaments); <code>json</code> a description of the model with links to every format.",
             values: MODEL_FORMATS,
             default: d.format,
           },

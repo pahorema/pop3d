@@ -34,7 +34,9 @@ diorama. Poi lo esplori, lo personalizzi e lo esporti, anche per la stampa 3D.
   selezionano per leggerne i dati e si possono nascondere uno a uno.
 - **Esportazione**: PNG fino a 4× (anche con sfondo trasparente), GLB e OBJ a colori in metri,
   STL e 3MF multicolore per la stampa: solidi chiusi, in millimetri, con base, scala ed
-  esagerazione verticale a scelta.
+  esagerazione verticale a scelta. Nel 3MF ogni livello è un oggetto a sé con il proprio colore:
+  Bambu Studio e OrcaSlicer lo assegnano a un filamento (alla domanda se caricare il file come
+  un solo oggetto in più parti si risponde sì), gli altri slicer leggono le sole geometrie.
 - **Condivisione**: l'indirizzo della pagina riproduce esattamente il diorama che stai guardando.
 
 Scorciatoie: `/` cerca · `1`–`5` pannelli · `R` vista iniziale · `T` dall'alto · `N` nord in alto ·
@@ -99,7 +101,9 @@ browser                                   server (Bun)
   [Clipper2](https://github.com/countertype/clipper2-ts) (unioni, ritagli sul bordo, strade come
   nastri) e vengono poi **tassellati lungo la griglia del terreno**: ogni livello si piega sui
   rilievi negli stessi punti, quindi strade e prati restano paralleli al suolo senza mai
-  attraversarlo. La stessa tassellazione produce i solidi chiusi per la stampa.
+  attraversarlo. La stessa tassellazione produce i solidi per la stampa: ogni pezzo è un guscio
+  chiuso in cui ciascuno spigolo è condiviso da due facce esatte, anche dove i contorni di
+  partenza si toccano o si sovrappongono di un soffio.
 - **`src/scene/`** – resa con three.js: una mesh per livello, colori per vertice sugli edifici,
   alberi istanziati, animazione di crescita in shader, ombre aggiornate solo quando serve,
   disegno solo quando qualcosa cambia e risoluzione adattiva durante il movimento.
