@@ -338,6 +338,7 @@ export function buildDiorama(
     terrain,
     { ring, path: shapePath, box },
     detail,
+    params.roofs && detail > 0,
     wallRibbons ? [{ layer: intersect(union(wallRibbons), shapePath), height: 8 }] : [],
   );
   progress(0.88);

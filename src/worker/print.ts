@@ -253,7 +253,62 @@ export function buildPrint(state: BuildState, params: PrintParams): { parts: Pri
     for (const solid of state.solids) {
       const ground = solid.ground * vertical;
       // Printed buildings always reach the ground and keep a minimum height.
-      prism(solid.polygon, ground - feature, Math.max(solid.top * vertical, ground + feature * 1.5));
+      const eaves = Math.max(solid.top * vertical, ground + feature * 1.5);
+      prism(solid.polygon, ground - feature, eaves);
+      // Each roof facet is a closed wedge standing on the eaves plane.
+      for (const piece of solid.roof ?? []) {
+        const { ring, z } = piece;
+        const n = ring.length / 2;
+        const indices = n === 3 ? [0, 1, 2] : earcut(ring);
+        for (let i = 0; i < indices.length; i += 3) {
+          let a = indices[i]!;
+          let b = indices[i + 1]!;
+          const c = indices[i + 2]!;
+          const cross =
+            (ring[b * 2]! - ring[a * 2]!) * (ring[c * 2 + 1]! - ring[a * 2 + 1]!) -
+            (ring[b * 2 + 1]! - ring[a * 2 + 1]!) * (ring[c * 2]! - ring[a * 2]!);
+          if (cross === 0) continue;
+          if (cross < 0) [a, b] = [b, a];
+          const ax = ring[a * 2]! * scale;
+          const ay = ring[a * 2 + 1]! * scale;
+          const bx = ring[b * 2]! * scale;
+          const by = ring[b * 2 + 1]! * scale;
+          const cx = ring[c * 2]! * scale;
+          const cy = ring[c * 2 + 1]! * scale;
+          soup.triangle(
+            ax,
+            ay,
+            eaves + z[a]! * vertical,
+            bx,
+            by,
+            eaves + z[b]! * vertical,
+            cx,
+            cy,
+            eaves + z[c]! * vertical,
+          );
+          soup.triangle(bx, by, eaves, ax, ay, eaves, cx, cy, eaves);
+        }
+        const winding = Math.sign(
+          ring.reduce((sum, _, i) => {
+            if (i % 2) return sum;
+            const j = (i + 2) % ring.length;
+            return sum + ring[i]! * ring[j + 1]! - ring[j]! * ring[i + 1]!;
+          }, 0),
+        );
+        for (let i = 0; i < n; i++) {
+          // Walk the ring counter-clockwise so that the sides face outwards.
+          const from = winding >= 0 ? i : (n - i) % n;
+          const to = winding >= 0 ? (i + 1) % n : (n - i - 1 + n) % n;
+          const zFrom = eaves + z[from]! * vertical;
+          const zTo = eaves + z[to]! * vertical;
+          const x0 = ring[from * 2]! * scale;
+          const y0 = ring[from * 2 + 1]! * scale;
+          const x1 = ring[to * 2]! * scale;
+          const y1 = ring[to * 2 + 1]! * scale;
+          if (zFrom - eaves > 1e-6) soup.triangle(x0, y0, zFrom, x0, y0, eaves, x1, y1, eaves);
+          if (zTo - eaves > 1e-6) soup.triangle(x0, y0, zFrom, x1, y1, eaves, x1, y1, zTo);
+        }
+      }
     }
     emit("buildings", soup);
   }
