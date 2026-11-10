@@ -49,6 +49,8 @@ const AREA_LAYER: Record<AreaKind, LayerId | null> = {
   farmland: "farmland",
   orchard: "farmland",
   sand: "sand",
+  rock: "rock",
+  ice: "ice",
   urban: "urban",
   sport: "sport",
   paved: "paved",
@@ -59,6 +61,8 @@ const LIFT: Partial<Record<LayerId, number>> = {
   urban: 0.2,
   farmland: 0.3,
   sand: 0.4,
+  rock: 0.42,
+  ice: 0.46,
   green: 0.5,
   forest: 0.65,
   sport: 0.8,
@@ -149,18 +153,23 @@ export function buildDiorama(
     else byKind.set(kind, paths);
   }
 
-  // Lines are buffered into ribbons, grouped by layer and width.
+  // Lines are buffered into ribbons, grouped by layer and width. Ways on bridges are kept apart:
+  // they are the only ones allowed to run over open water.
   const reach = grow(box, 45);
-  const groups = new Map<string, { layer: LineLayer; width: number; lines: Paths64 }>();
+  const groups = new Map<string, { layer: LineLayer; width: number; spans: boolean; lines: Paths64 }>();
   let roadMetres = 0;
   for (const feature of features.lines) {
     const width = Math.round(feature.width * 2) / 2;
-    const key = `${feature.layer}:${width}`;
+    const key = `${feature.layer}:${width}:${feature.bridge}`;
     let group = groups.get(key);
-    if (!group) groups.set(key, (group = { layer: feature.layer, width, lines: [] }));
+    if (!group) {
+      groups.set(key, (group = { layer: feature.layer, width, spans: feature.bridge, lines: [] }));
+    }
     group.lines.push(toPath(feature.line));
   }
   const ribbons = new Map<LineLayer, Paths64>();
+  const grounded = new Map<LineLayer, Paths64>();
+  const wideWater: Paths64 = [];
   for (const group of groups.values()) {
     const lines = clipLinesToBox(group.lines, reach.minX, reach.minY, reach.maxX, reach.maxY);
     if (!lines.length) continue;
@@ -173,9 +182,11 @@ export function buildDiorama(
       }
     }
     const inflated = inflateLines(lines, group.width);
-    const list = ribbons.get(group.layer);
+    if (group.layer === "water" && group.width >= 5) for (const path of inflated) wideWater.push(path);
+    const target = group.spans || group.layer === "water" || group.layer === "wall" ? ribbons : grounded;
+    const list = target.get(group.layer);
     if (list) for (const path of inflated) list.push(path);
-    else ribbons.set(group.layer, inflated);
+    else target.set(group.layer, inflated);
   }
   progress(0.2);
 
@@ -185,6 +196,15 @@ export function buildDiorama(
     union([...(byKind.get("water") ?? []), ...(ribbons.get("water") ?? []), ...sea]),
     shapePath,
   );
+  // Roads and paths without a bridge stop at seas, lakes and rivers (paths over tidal flats,
+  // ferry ramps, mapping slips), but still step over brooks, whose culverts are rarely mapped.
+  const openWater = union([...(byKind.get("water") ?? []), ...wideWater, ...sea]);
+  for (const [layer, paths] of grounded) {
+    const kept = openWater.length ? difference(union(paths), openWater) : paths;
+    const list = ribbons.get(layer);
+    if (list) for (const path of kept) list.push(path);
+    else ribbons.set(layer, kept);
+  }
   progress(0.28);
 
   // ---- Terrain ----------------------------------------------------------------------------
