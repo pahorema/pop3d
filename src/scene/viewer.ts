@@ -190,6 +190,8 @@ export class Viewer {
     }
     const moved = this.controls.update(delta);
     if (!moved && !animating && this.pending <= 0) return;
+    // A collapsed or hidden viewport has nothing to draw into.
+    if (this.container.clientWidth < 8 || this.container.clientHeight < 8) return;
     if (this.pending > 0) this.pending--;
     // Let damping and accumulated effects settle after the last change.
     if (moved) this.invalidate(12);
