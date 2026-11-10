@@ -21,6 +21,20 @@ const SECURITY_HEADERS: Record<string, string> = {
   "permissions-policy": "geolocation=(self)",
 };
 
+/** The app only talks to its own origin, plus OpenStreetMap tiles for the area picker. */
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https://tile.openstreetmap.org",
+  "connect-src 'self' blob: data:",
+  "worker-src 'self' blob:",
+  "font-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "frame-ancestors 'self'",
+].join("; ");
+
 const COMPRESSIBLE = /\.(html|js|css|json|svg|txt|map|webmanifest)$/;
 const gzipped = new Map<string, Uint8Array<ArrayBuffer>>();
 const reloadClients = new Set<ReadableStreamDefaultController<Uint8Array>>();
@@ -163,6 +177,7 @@ async function serveStatic(url: URL, request: Request): Promise<Response> {
     "cache-control": immutable && !config.dev ? "public, max-age=31536000, immutable" : "no-cache",
     ...SECURITY_HEADERS,
   };
+  if (!config.dev && path.endsWith(".html")) headers["content-security-policy"] = CONTENT_SECURITY_POLICY;
   if (request.method === "HEAD") return new Response(null, { headers });
 
   if (!config.dev && COMPRESSIBLE.test(path) && acceptsGzip(request)) {
