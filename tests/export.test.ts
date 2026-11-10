@@ -42,6 +42,15 @@ describe("print exports", () => {
     expect(new TextDecoder().decode(new Uint8Array(buffer, 0, 5))).not.toBe("solid");
   });
 
+  test("coordinates that are not numbers are refused, not written", () => {
+    const broken = tetrahedron(0);
+    broken[4] = Number.NaN;
+    const bad: PrintPart[] = [{ layer: "trees", triangles: broken, shells: new Uint32Array([0]) }];
+    const none = {} as Record<LayerId, string>;
+    expect(() => writeStl(bad, "t")).toThrow("trees");
+    expect(() => write3mf(bad, none, none, "t")).toThrow("trees");
+  });
+
   test("3MF is a valid package with indexed parts", () => {
     const colors = { base: "#aabbcc", buildings: "#ff8800" } as Record<LayerId, string>;
     const names = { base: "Terrain & base", buildings: "Buildings" } as Record<LayerId, string>;

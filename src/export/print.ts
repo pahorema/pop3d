@@ -2,8 +2,19 @@ import { strToU8, zipSync } from "fflate";
 import type { LayerId, PrintPart } from "../core/types";
 import type { Bytes } from "./mesh";
 
+/** A coordinate that is not a number makes the whole file unreadable: better no file at all. */
+function check(parts: PrintPart[]): void {
+  for (const part of parts) {
+    const t = part.triangles;
+    for (let i = 0; i < t.length; i++) {
+      if (!Number.isFinite(t[i]!)) throw new Error(`The ${part.layer} part has invalid coordinates`);
+    }
+  }
+}
+
 /** Binary STL holding every part as one triangle soup. */
 export function writeStl(parts: PrintPart[], title: string): Bytes {
+  check(parts);
   let count = 0;
   for (const part of parts) count += part.triangles.length / 9;
   const buffer = new ArrayBuffer(84 + count * 50);
@@ -69,6 +80,7 @@ export function write3mf(
   names: Record<LayerId, string>,
   title: string,
 ): Bytes {
+  check(parts);
   const chunks: string[] = [];
   chunks.push(
     '<?xml version="1.0" encoding="UTF-8"?>\n',
